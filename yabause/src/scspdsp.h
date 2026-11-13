@@ -137,4 +137,5 @@ struct ScspDspInterface
 extern struct ScspDspInterface dsp_inf;
 
 void scsp_dsp_int_init();
+int scsp_dsp_int_state(FILE *fp, int load);
 #endif

@@ -22,6 +22,7 @@ extern "C"
 #include "scsp.h"
 #include "scspdsp.h"
 #include "scsp_dsp_jit.h"
+#include "soundstate_io.h"
 }
 
 #include "MemStream.h"
@@ -77,6 +78,7 @@ struct DspCodeBlock
 {
    int dirty;
    CMemoryFunction function;
+   u64 program[BLOCK_SIZE];
 }blocks[NUM_BLOCKS];
 
 int shifter_is_used(ScspDspInstruction instruction)
@@ -586,6 +588,25 @@ void op5(Jitter::CJitter& jit, ScspDspInstruction instruction)
    }
 }
 
+static void compile_dsp_block(int block_num)
+{
+   Framework::CMemStream stream;
+   jit.SetStream(&stream);
+   jit.Begin();
+   for (int i = 0; i < BLOCK_SIZE; i++)
+   {
+      ScspDspInstruction instr;
+      instr.all = blocks[block_num].program[i];
+      op1(jit, instr); assert(jit.IsStackEmpty());
+      op2(jit, instr); assert(jit.IsStackEmpty());
+      op3(jit, instr, block_num * BLOCK_SIZE + i); assert(jit.IsStackEmpty());
+      op4(jit, instr); assert(jit.IsStackEmpty());
+      op5(jit, instr); assert(jit.IsStackEmpty());
+   }
+   jit.End();
+   blocks[block_num].function = CMemoryFunction(stream.GetBuffer(), stream.GetSize());
+}
+
 extern "C" void scsp_dsp_jit_exec()
 {
    //skip instructions == 0 at the end of programs
@@ -625,27 +646,8 @@ extern "C" void scsp_dsp_jit_exec()
          if (!blocks[block_num].dirty)//recompile not necessary for this block
             continue;
 
-         Framework::CMemStream stream;
-         stream.Seek(0, Framework::STREAM_SEEK_DIRECTION::STREAM_SEEK_SET);
-         jit.SetStream(&stream);
-         jit.Begin();
-         for (int step = block_num * BLOCK_SIZE; step < (block_num + 1) * BLOCK_SIZE; step++)
-         {
-            ScspDspInstruction instr;
-            instr.all = cxt.mpro[step];
-            op1(jit, instr);
-            assert(jit.IsStackEmpty());
-            op2(jit, instr);
-            assert(jit.IsStackEmpty());
-            op3(jit, instr, step);
-            assert(jit.IsStackEmpty());                            
-            op4(jit, instr);
-            assert(jit.IsStackEmpty());
-            op5(jit, instr);
-            assert(jit.IsStackEmpty());
-         }
-         jit.End();
-         blocks[block_num].function = CMemoryFunction(stream.GetBuffer(), stream.GetSize());
+         memcpy(blocks[block_num].program, &cxt.mpro[block_num * BLOCK_SIZE], sizeof(blocks[block_num].program));
+         compile_dsp_block(block_num);
          blocks[block_num].dirty = 0;
       }
       cxt.need_recompile = 0;
@@ -745,7 +747,12 @@ u64 jit_get_mpro(u32 addr)
 extern "C" void scsp_dsp_jit_init()
 {
    memset(&cxt, 0, sizeof(struct DspContext));
-   memset(&blocks, 0, sizeof(struct DspCodeBlock) * NUM_BLOCKS);
+   for (int i = 0; i < NUM_BLOCKS; i++)
+   {
+      blocks[i].function = CMemoryFunction();
+      blocks[i].dirty = 0;
+      memset(blocks[i].program, 0, sizeof(blocks[i].program));
+   }
 
    dsp_inf.get_effect_out = jit_get_effect_out;
    dsp_inf.set_coef = jit_set_coef;
@@ -760,4 +767,66 @@ extern "C" void scsp_dsp_jit_init()
    dsp_inf.get_mems = jit_get_mems;
    dsp_inf.get_mpro = jit_get_mpro;
    dsp_inf.exec = scsp_dsp_jit_exec;
+}
+
+extern "C" int scsp_dsp_jit_state(FILE *fp, int load)
+{
+   unsigned int i;
+   SOUND_STATE_ARRAY(cxt.coef);
+   SOUND_STATE_ARRAY(cxt.madrs);
+   SOUND_STATE_ARRAY(cxt.temp);
+   SOUND_STATE_ARRAY(cxt.mems);
+   SOUND_STATE_ARRAY(cxt.mixs);
+   SOUND_STATE_ARRAY(cxt.efreg);
+   SOUND_STATE_ARRAY(cxt.exts);
+   for (i = 0; i < 128; i++)
+   {
+      u32 lo = (u32)cxt.mpro[i];
+      u32 hi = (u32)(cxt.mpro[i] >> 32);
+      SOUND_STATE_FIELD(lo);
+      SOUND_STATE_FIELD(hi);
+      if (load) cxt.mpro[i] = ((u64)hi << 32) | lo;
+   }
+   SOUND_STATE_FIELD(cxt.inputs);
+   SOUND_STATE_FIELD(cxt.y_reg);
+   SOUND_STATE_FIELD(cxt.shifted);
+   SOUND_STATE_FIELD(cxt.adrs_reg);
+   SOUND_STATE_FIELD(cxt.frc_reg);
+   SOUND_STATE_FIELD(cxt.y_sel_input);
+   SOUND_STATE_FIELD(cxt.x_sel_input);
+   SOUND_STATE_FIELD(cxt.temp_val);
+   SOUND_STATE_FIELD(cxt.multiply_val_lo);
+   SOUND_STATE_FIELD(cxt.multiply_val);
+   SOUND_STATE_FIELD(cxt.b_val);
+   SOUND_STATE_FIELD(cxt.sft_reg);
+   SOUND_STATE_FIELD(cxt.rbl);
+   SOUND_STATE_FIELD(cxt.rbp);
+   SOUND_STATE_FIELD(cxt.mdec_ct);
+   SOUND_STATE_FIELD(cxt.need_read);
+   SOUND_STATE_FIELD(cxt.need_write);
+   SOUND_STATE_FIELD(cxt.read_data);
+   SOUND_STATE_FIELD(cxt.write_data);
+   SOUND_STATE_FIELD(cxt.io_addr);
+   SOUND_STATE_FIELD(cxt.addr);
+   SOUND_STATE_FIELD(cxt.need_recompile);
+   for (i = 0; i < NUM_BLOCKS; i++)
+   {
+      u32 compiled = !blocks[i].function.IsEmpty();
+      SOUND_STATE_FIELD(compiled);
+      SOUND_STATE_FIELD(blocks[i].dirty);
+      for (unsigned int j = 0; j < BLOCK_SIZE; j++)
+      {
+         u32 lo = (u32)blocks[i].program[j];
+         u32 hi = (u32)(blocks[i].program[j] >> 32);
+         SOUND_STATE_FIELD(lo);
+         SOUND_STATE_FIELD(hi);
+         if (load) blocks[i].program[j] = ((u64)hi << 32) | lo;
+      }
+      if (load)
+      {
+         blocks[i].function = CMemoryFunction();
+         if (compiled) compile_dsp_block(i);
+      }
+   }
+   return 0;
 }

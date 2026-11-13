@@ -105,6 +105,7 @@ static void test_fifo(void)
 {
     u32 total;
     check(SNDSDL.Init() == 0, "initialize output");
+    check(SNDSDL.ChangeVideoFormat(50) == 0, "use exact-rate PAL for FIFO checks");
     total = capacity();
     check(total > 0, "an empty audio queue reports writable space");
     check(total >= (u32)device.samples * 2, "queue holds at least two callback blocks");
@@ -180,6 +181,7 @@ static void test_volume_and_mute(void)
 {
     u32 total, i;
     check(SNDSDL.Init() == 0, "initialize volume test");
+    check(SNDSDL.ChangeVideoFormat(50) == 0, "use exact-rate PAL for clipping checks");
     total = capacity();
     if (!total) { consume(device.samples); total = capacity(); }
     SNDSDL.SetVolume(50);
@@ -216,12 +218,44 @@ static void test_failures(void)
     check(subsystem_refs == 0, "failed initialization releases subsystem reference");
 }
 
+static void test_ntsc_clock(void)
+{
+    unsigned long long next_callback = (unsigned long long)2048 * 60000;
+    u32 frame, i, pending = 0, gaps = 0;
+    check(SNDSDL.Init() == 0, "initialize NTSC clock test");
+    for (i = 0; i < 16384; i++) { left[i] = 10000; right[i] = -10000; }
+    SNDSDL.UpdateAudio((u32 *)left, (u32 *)right, capacity());
+    /* Ten minutes at 60000/1001 fps, with an exactly 44100 Hz device.
+       Constant nonzero PCM makes every inserted silence detectable. */
+    for (frame = 1; frame <= 36000; frame++)
+    {
+        unsigned long long now = (unsigned long long)frame * 1001 * 44100;
+        u32 space, amount;
+        pending += 735;
+        while (next_callback <= now)
+        {
+            consume(2048);
+            for (i = 0; i < 2048; i++)
+                if (output[i * 2] != 10000 || output[i * 2 + 1] != -10000) gaps++;
+            next_callback += (unsigned long long)2048 * 60000;
+        }
+        space = capacity();
+        amount = pending < space ? pending : space;
+        SNDSDL.UpdateAudio((u32 *)left, (u32 *)right, amount);
+        pending -= amount;
+    }
+    check(gaps == 0, "NTSC playback has no clock-drift gaps over ten minutes");
+    check(pending < 4096, "NTSC correction does not accumulate excess audio");
+    SNDSDL.DeInit();
+}
+
 int main(void)
 {
     test_fifo();
     test_reset_and_format();
     test_volume_and_mute();
     test_failures();
+    test_ntsc_clock();
     printf("%d audio regression failure(s)\n", failures);
     return failures ? 1 : 0;
 }

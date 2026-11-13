@@ -25,4 +25,5 @@
 void scsp_dsp_jit_exec();
 void scsp_dsp_jit_need_recompile();
 void scsp_dsp_jit_init();
+int scsp_dsp_jit_state(FILE *fp, int load);
 #endif

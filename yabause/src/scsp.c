@@ -99,6 +99,7 @@
 #include "scsp.h"
 #include "scspdsp.h"
 #include "scsp_dsp_jit.h"
+#include "soundstate_io.h"
 #if 0
 #include "windows/aviout.h"
 #endif
@@ -5456,6 +5457,116 @@ M68KClearCodeBreakpoints ()
 
 //////////////////////////////////////////////////////////////////////////////
 
+static int SoundTransferNewState(FILE *fp, int load)
+{
+   int i;
+   u32 core = use_new_scsp;
+   u32 jit_core = yabsys.use_scsp_dsp_jit;
+   extern u32 saved_scsp_cycles, saved_m68k_cycles;
+
+   SOUND_STATE_FIELD(core);
+   SOUND_STATE_FIELD(jit_core);
+   if (core != 1 || jit_core > 1) return -1;
+#ifndef HAVE_PLAY_JIT
+   if (jit_core) return -1;
+#endif
+   if (load)
+   {
+      use_new_scsp = 1;
+      yabsys.use_scsp_dsp_jit = jit_core;
+      new_scsp_reset(&new_scsp);
+   }
+   SOUND_STATE_ARRAY(new_scsp.sound_stack);
+   for (i = 0; i < 32; i++)
+   {
+      struct Slot *slot = &new_scsp.slots[i];
+      u32 envelope = slot->state.envelope;
+      SOUND_STATE_FIELD(slot->regs.kx);
+      SOUND_STATE_FIELD(slot->regs.kb);
+      SOUND_STATE_FIELD(slot->regs.sbctl);
+      SOUND_STATE_FIELD(slot->regs.ssctl);
+      SOUND_STATE_FIELD(slot->regs.lpctl);
+      SOUND_STATE_FIELD(slot->regs.pcm8b);
+      SOUND_STATE_FIELD(slot->regs.sa);
+      SOUND_STATE_FIELD(slot->regs.lsa);
+      SOUND_STATE_FIELD(slot->regs.lea);
+      SOUND_STATE_FIELD(slot->regs.d2r);
+      SOUND_STATE_FIELD(slot->regs.d1r);
+      SOUND_STATE_FIELD(slot->regs.hold);
+      SOUND_STATE_FIELD(slot->regs.ar);
+      SOUND_STATE_FIELD(slot->regs.unknown1);
+      SOUND_STATE_FIELD(slot->regs.ls);
+      SOUND_STATE_FIELD(slot->regs.krs);
+      SOUND_STATE_FIELD(slot->regs.dl);
+      SOUND_STATE_FIELD(slot->regs.rr);
+      SOUND_STATE_FIELD(slot->regs.unknown2);
+      SOUND_STATE_FIELD(slot->regs.si);
+      SOUND_STATE_FIELD(slot->regs.sd);
+      SOUND_STATE_FIELD(slot->regs.tl);
+      SOUND_STATE_FIELD(slot->regs.mdl);
+      SOUND_STATE_FIELD(slot->regs.mdxsl);
+      SOUND_STATE_FIELD(slot->regs.mdysl);
+      SOUND_STATE_FIELD(slot->regs.unknown3);
+      SOUND_STATE_FIELD(slot->regs.oct);
+      SOUND_STATE_FIELD(slot->regs.unknown4);
+      SOUND_STATE_FIELD(slot->regs.fns);
+      SOUND_STATE_FIELD(slot->regs.re);
+      SOUND_STATE_FIELD(slot->regs.lfof);
+      SOUND_STATE_FIELD(slot->regs.plfows);
+      SOUND_STATE_FIELD(slot->regs.plfos);
+      SOUND_STATE_FIELD(slot->regs.alfows);
+      SOUND_STATE_FIELD(slot->regs.alfos);
+      SOUND_STATE_FIELD(slot->regs.unknown5);
+      SOUND_STATE_FIELD(slot->regs.isel);
+      SOUND_STATE_FIELD(slot->regs.imxl);
+      SOUND_STATE_FIELD(slot->regs.disdl);
+      SOUND_STATE_FIELD(slot->regs.dipan);
+      SOUND_STATE_FIELD(slot->regs.efsdl);
+      SOUND_STATE_FIELD(slot->regs.efpan);
+      SOUND_STATE_FIELD(slot->state.wave);
+      SOUND_STATE_FIELD(slot->state.backwards);
+      SOUND_STATE_FIELD(slot->state.output);
+      SOUND_STATE_FIELD(slot->state.attenuation);
+      SOUND_STATE_FIELD(slot->state.step_count);
+      SOUND_STATE_FIELD(slot->state.sample_counter);
+      SOUND_STATE_FIELD(slot->state.envelope_steps_taken);
+      SOUND_STATE_FIELD(slot->state.waveform_phase_value);
+      SOUND_STATE_FIELD(slot->state.sample_offset);
+      SOUND_STATE_FIELD(slot->state.address_pointer);
+      SOUND_STATE_FIELD(slot->state.lfo_counter);
+      SOUND_STATE_FIELD(slot->state.lfo_pos);
+      SOUND_STATE_FIELD(slot->state.num);
+      SOUND_STATE_FIELD(slot->state.is_muted);
+      SOUND_STATE_FIELD(envelope);
+      if (envelope > RELEASE) return -1;
+      if (load) slot->state.envelope = (enum EnvelopeStates)envelope;
+   }
+   SOUND_STATE_ARRAY(plfo.noise_table);
+   SOUND_STATE_ARRAY(alfo.noise_table);
+   SOUND_STATE_FIELD(new_scsp_cycles);
+   SOUND_STATE_FIELD(new_scsp_outbuf_pos);
+   if (new_scsp_outbuf_pos < 0 || new_scsp_outbuf_pos > 900) return -1;
+   SOUND_STATE_ARRAY(new_scsp_outbuf_l);
+   SOUND_STATE_ARRAY(new_scsp_outbuf_r);
+   SOUND_STATE_FIELD(savedcycles);
+   SOUND_STATE_FIELD(saved_scsp_cycles);
+   SOUND_STATE_FIELD(saved_m68k_cycles);
+   SOUND_STATE_FIELD(ScspInternalVars->scsptiming1);
+   SOUND_STATE_FIELD(ScspInternalVars->scsptiming2);
+   SOUND_STATE_FIELD(cdda_next_in);
+   SOUND_STATE_FIELD(cdda_out_left);
+   if (cdda_next_in >= sizeof(cddabuf.data) || cdda_out_left > sizeof(cddabuf.data)) return -1;
+   if (load)
+   {
+      if (fread(cddabuf.data, sizeof(cddabuf.data), 1, fp) != 1) return -1;
+   }
+   else if (fwrite(cddabuf.data, sizeof(cddabuf.data), 1, fp) != 1) return -1;
+#ifdef HAVE_PLAY_JIT
+   if (jit_core) return scsp_dsp_jit_state(fp, load);
+#endif
+   return scsp_dsp_int_state(fp, load);
+}
+
 int
 SoundSaveState (FILE *fp)
 {
@@ -5465,7 +5576,7 @@ SoundSaveState (FILE *fp)
   u8 nextphase;
   IOCheck_struct check = { 0, 0 };
 
-  offset = StateWriteHeader (fp, "SCSP", 2);
+  offset = StateWriteHeader (fp, "SCSP", use_new_scsp ? 3 : 2);
 
   // Save 68k registers first
   ywrite (&check, (void *)&IsM68KRunning, 1, 1, fp);
@@ -5636,6 +5747,9 @@ SoundSaveState (FILE *fp)
 
   ywrite (&check, (void *)scsp.stack, 4, 32 * 2, fp);
 
+  if (use_new_scsp && SoundTransferNewState(fp, 0) != 0)
+     return -1;
+
   return StateFinishHeader (fp, offset);
 }
 
@@ -5648,6 +5762,9 @@ SoundLoadState (FILE *fp, int version, int size)
   u32 temp;
   u8 nextphase;
   IOCheck_struct check = { 0, 0 };
+  long state_start = ftell(fp);
+
+  if (version < 1 || version > 3 || size < 0) return -1;
 
   // Read 68k registers first
   yread (&check, (void *)&IsM68KRunning, 1, 1, fp);
@@ -5865,6 +5982,20 @@ SoundLoadState (FILE *fp, int version, int size)
 
       yread (&check, (void *)scsp.stack, 4, 32 * 2, fp);
     }
+
+  if (version >= 3)
+  {
+     if (SoundTransferNewState(fp, 1) != 0) return -1;
+     if (ftell(fp) - state_start != size) return -1;
+  }
+  else if (use_new_scsp)
+  {
+     /* Legacy files contain no new-SCSP voices or DSP state. At least avoid
+        mixing in voices and effects from the scene that was just replaced. */
+     new_scsp_reset(&new_scsp);
+  }
+  scspsoundgenpos = scspsoundoutleft = 0;
+  if (SNDCore) SNDCore->Reset();
 
   return size;
 }

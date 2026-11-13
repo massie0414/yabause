@@ -15,6 +15,12 @@ silence on underrun, buffered recovery, reset, NTSC/PAL changes, volume scaling,
 clipping, mute and initialization cleanup. The original backend failed 24
 checks; the corrected backend passes them.
 
+The NTSC clock test additionally simulates ten minutes at 60000/1001 video
+frames per second against exactly 44100 output samples per second. It detects
+inserted silence in a constant nonzero signal and excessive queued data. The
+previous backend fails this test; the 1001/1000 streaming rate correction
+passes. PAL FIFO/clipping tests retain one-to-one sample conversion.
+
 `sndsdl_threaded` uses SDL's real audio thread with the dummy audio driver. It
 consumes a filled queue and repeatedly changes video format, resets, adjusts
 volume, mutes, and closes/reopens the device. It does not play audible sound.

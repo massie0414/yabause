@@ -1634,7 +1634,11 @@ int YabLoadStateStream(FILE *fp)
       ScspUnMuteAudio(SCSP_MUTE_SYSTEM);
       return -3;
    }
-   SoundLoadState(fp, version, chunksize);
+   if (SoundLoadState(fp, version, chunksize) < 0)
+   {
+      ScspUnMuteAudio(SCSP_MUTE_SYSTEM);
+      return -3;
+   }
 
    if (StateCheckRetrieveHeader(fp, "SCU ", &version, &chunksize) != 0)
    {

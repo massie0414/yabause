@@ -89,6 +89,19 @@ static u8 soundvolume;
 static int muted = 0;
 static int audio_initialized;
 static int audio_open;
+static int sound_ntsc;
+static u32 soundphase = 1000;
+static s32 previous_left, previous_right;
+static int previous_valid;
+
+/* NTSC produces 735 samples every 1001/60000 seconds (44055.94 Hz).
+   Resample by 1001/1000 so the 44100 Hz device cannot slowly drain the queue.
+   phase is the next output position within a 1001-unit input interval. */
+static u32 SNDSDLInputSpace(void)
+{
+   u32 frames = (soundbufsize - soundqueued) / SOUND_FRAME_BYTES;
+   return sound_ntsc ? (frames * 1000 + soundphase - 1) / 1001 : frames;
+}
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -206,6 +219,8 @@ static int SNDSDLReset(void)
       SDL_LockAudio();
       soundoffset = soundpos = soundqueued = 0;
       soundready = 0;
+      soundphase = 1000;
+      previous_valid = 0;
       SDL_UnlockAudio();
    }
    return 0;
@@ -223,8 +238,10 @@ static int SNDSDLChangeVideoFormat(int vertfreq)
    newsize = (audiofmt.freq / vertfreq) * NUMSOUNDBLOCKS * SOUND_FRAME_BYTES;
    prebuffer = audiofmt.samples * 2 * SOUND_FRAME_BYTES;
    // The old four-frame buffer could be smaller than two SDL callbacks.
-   if (newsize < prebuffer)
-      newsize = prebuffer;
+   // A resampling step can emit two frames. Leave enough space to reach the
+   // reserve even when the last free slot cannot accept the next input.
+   if (newsize < prebuffer + 2 * SOUND_FRAME_BYTES)
+      newsize = prebuffer + 2 * SOUND_FRAME_BYTES;
    if (!(newbuffer = (u16 *)malloc(newsize)))
       return -1;
    memset(newbuffer, audiofmt.silence, newsize);
@@ -236,6 +253,9 @@ static int SNDSDLChangeVideoFormat(int vertfreq)
    soundprebuffer = prebuffer;
    soundoffset = soundpos = soundqueued = 0;
    soundready = 0;
+   sound_ntsc = (vertfreq == 60);
+   soundphase = 1000;
+   previous_valid = 0;
    SDL_UnlockAudio();
    return 0;
 }
@@ -272,8 +292,37 @@ static void SNDSDLUpdateAudio(u32 *leftchanbuffer, u32 *rightchanbuffer, u32 num
       return;
    SDL_LockAudio();
 
-   if (num_samples > (soundbufsize - soundqueued) / SOUND_FRAME_BYTES)
-      num_samples = (soundbufsize - soundqueued) / SOUND_FRAME_BYTES;
+   if (num_samples > SNDSDLInputSpace())
+      num_samples = SNDSDLInputSpace();
+
+   if (sound_ntsc)
+   {
+      u32 i;
+      for (i = 0; i < num_samples; i++)
+      {
+         s32 left = (s32)leftchanbuffer[i], right = (s32)rightchanbuffer[i];
+         if (!previous_valid)
+         {
+            previous_left = left;
+            previous_right = right;
+            previous_valid = 1;
+         }
+         while (soundphase <= 1001)
+         {
+            s32 out_l = (s32)(((s64)previous_left * (1001 - soundphase) + (s64)left * soundphase) / 1001);
+            s32 out_r = (s32)(((s64)previous_right * (1001 - soundphase) + (s64)right * soundphase) / 1001);
+            sdlConvert32uto16s(&out_l, &out_r, (s16 *)((u8 *)stereodata16 + soundoffset), 1);
+            soundoffset = (soundoffset + SOUND_FRAME_BYTES) % soundbufsize;
+            soundqueued += SOUND_FRAME_BYTES;
+            soundphase += 1000;
+         }
+         soundphase -= 1001;
+         previous_left = left;
+         previous_right = right;
+      }
+      SDL_UnlockAudio();
+      return;
+   }
 
    if ((soundbufsize - soundoffset) < (num_samples * sizeof(s16) * 2))
    {
@@ -306,7 +355,7 @@ static u32 SNDSDLGetAudioSpace(void)
    if (!audio_open)
       return 0;
    SDL_LockAudio();
-   freespace = (soundbufsize - soundqueued) / SOUND_FRAME_BYTES;
+   freespace = SNDSDLInputSpace();
    SDL_UnlockAudio();
    return freespace;
 }

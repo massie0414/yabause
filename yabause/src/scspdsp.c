@@ -19,6 +19,7 @@
 
 #include "scsp.h"
 #include "scspdsp.h"
+#include "soundstate_io.h"
 
 struct ScspDsp
 {
@@ -792,5 +793,45 @@ void scsp_dsp_int_init()
    dsp_inf.get_mems = int_get_mems;
    dsp_inf.get_mpro = int_get_mpro;
    dsp_inf.exec = scsp_dsp_int_exec;
+}
+
+int scsp_dsp_int_state(FILE *fp, int load)
+{
+   unsigned int i;
+   SOUND_STATE_ARRAY(scsp_dsp.coef);
+   SOUND_STATE_ARRAY(scsp_dsp.madrs);
+   SOUND_STATE_ARRAY(scsp_dsp.temp);
+   SOUND_STATE_ARRAY(scsp_dsp.mems);
+   SOUND_STATE_ARRAY(scsp_dsp.mixs);
+   SOUND_STATE_ARRAY(scsp_dsp.efreg);
+   SOUND_STATE_ARRAY(scsp_dsp.exts);
+   for (i = 0; i < 128; i++)
+   {
+      u32 lo = (u32)scsp_dsp.mpro[i];
+      u32 hi = (u32)(scsp_dsp.mpro[i] >> 32);
+      SOUND_STATE_FIELD(lo);
+      SOUND_STATE_FIELD(hi);
+      if (load) scsp_dsp.mpro[i] = ((u64)hi << 32) | lo;
+   }
+   SOUND_STATE_FIELD(scsp_dsp.mdec_ct);
+   SOUND_STATE_FIELD(scsp_dsp.inputs);
+   SOUND_STATE_FIELD(scsp_dsp.b);
+   SOUND_STATE_FIELD(scsp_dsp.x);
+   SOUND_STATE_FIELD(scsp_dsp.y);
+   SOUND_STATE_FIELD(scsp_dsp.acc);
+   SOUND_STATE_FIELD(scsp_dsp.shifted);
+   SOUND_STATE_FIELD(scsp_dsp.y_reg);
+   SOUND_STATE_FIELD(scsp_dsp.frc_reg);
+   SOUND_STATE_FIELD(scsp_dsp.adrs_reg);
+   SOUND_STATE_FIELD(scsp_dsp.mul_out);
+   SOUND_STATE_FIELD(scsp_dsp.mrd_value);
+   SOUND_STATE_FIELD(scsp_dsp.rbl);
+   SOUND_STATE_FIELD(scsp_dsp.rbp);
+   SOUND_STATE_FIELD(scsp_dsp.need_read);
+   SOUND_STATE_FIELD(scsp_dsp.need_nofl);
+   SOUND_STATE_FIELD(scsp_dsp.io_addr);
+   SOUND_STATE_FIELD(scsp_dsp.need_write);
+   SOUND_STATE_FIELD(scsp_dsp.write_data);
+   return 0;
 }
 
