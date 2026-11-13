@@ -277,6 +277,34 @@ endif()
 yab_port_success(yabause-qt)
 configure_file(yabause.desktop.in ${YAB_PORT_NAME}.desktop)
 
+if (WIN32 AND MSVC AND Qt5_FOUND)
+	option(YAB_DEPLOY_QT "Copy Qt and SDL runtime files beside the executable" OFF)
+	if (YAB_DEPLOY_QT)
+		find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${QT_BINARY_DIR}" NO_DEFAULT_PATH)
+		if (NOT WINDEPLOYQT_EXECUTABLE)
+			message(FATAL_ERROR "YAB_DEPLOY_QT requires windeployqt in the Qt bin directory")
+		endif()
+		add_custom_command(TARGET yabause-qt POST_BUILD
+			COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+				--no-translations --no-compiler-runtime --no-opengl-sw --no-quick-import
+				"$<TARGET_FILE:yabause-qt>"
+			COMMENT "Deploying Qt runtime files"
+			VERBATIM)
+		if (SDL2_FOUND)
+			get_filename_component(_sdl2_library_dir "${SDL2_LIBRARY_TEMP}" DIRECTORY)
+			find_file(SDL2_RUNTIME_LIBRARY SDL2.dll HINTS "${_sdl2_library_dir}" NO_DEFAULT_PATH)
+			if (NOT SDL2_RUNTIME_LIBRARY)
+				message(FATAL_ERROR "Set SDL2_RUNTIME_LIBRARY to the matching SDL2.dll")
+			endif()
+			add_custom_command(TARGET yabause-qt POST_BUILD
+				COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+					"${SDL2_RUNTIME_LIBRARY}" "$<TARGET_FILE_DIR:yabause-qt>"
+				VERBATIM)
+		endif()
+		set_property(TARGET yabause-qt PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:yabause-qt>")
+	endif()
+endif()
+
 if (WIN32)
 	install(TARGETS yabause-qt DESTINATION ".")
 	if (GLUT_FOUND)

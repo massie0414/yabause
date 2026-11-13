@@ -4,7 +4,7 @@ include (CheckCSourceCompiles)
 include(CheckFunctionExists)
 include(CheckIncludeFile)
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.10)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/CMakeTests)
 
@@ -97,6 +97,7 @@ endif()
 # disable strdup warning in MSVC
 if (MSVC)
 	add_definitions(/wd4996)
+	add_compile_options(/MP)
 endif ()
 
 # math library
@@ -128,7 +129,9 @@ if (GETTIMEOFDAY_OK)
 endif ()
 
 # floorf
-set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} "-lm")
+if (UNIX)
+	set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} m)
+endif()
 check_function_exists(floorf FLOORF_OK)
 if (FLOORF_OK)
 	add_definitions(-DHAVE_FLOORF=1)
@@ -528,14 +531,7 @@ if (YAB_WANT_MUSASHI)
     set (MUSASHI_GENERATED_HEADERS
         ${CMAKE_CURRENT_BINARY_DIR}/musashi/m68kops.h)
 
-    include(ExternalProject)
-    ExternalProject_Add(m68kmake
-        DOWNLOAD_COMMAND ""
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/musashi
-        CMAKE_GENERATOR "${CMAKE_GENERATOR}"
-        INSTALL_COMMAND ""
-        BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/musashi
-    )
+    add_subdirectory(musashi)
 
     add_definitions(-DHAVE_MUSASHI=1)
 
@@ -760,7 +756,7 @@ if (YAB_WANT_C68K)
 endif(YAB_WANT_C68K)
 
 if (YAB_WANT_MUSASHI)
-	add_dependencies(yabause m68kmake)
+	add_dependencies(yabause musashi)
 endif(YAB_WANT_MUSASHI)
 
 macro(yab_port_start)

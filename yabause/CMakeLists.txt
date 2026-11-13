@@ -1,6 +1,6 @@
-project(yabause)
+cmake_minimum_required(VERSION 3.10)
 
-cmake_minimum_required(VERSION 2.8)
+project(yabause)
 
 set(YAB_PACKAGE yabause)
 set(YAB_VERSION_MAJOR 0)
@@ -38,3 +38,7 @@ include(CPack)
 add_subdirectory(doc)
 add_subdirectory(l10n)
 add_subdirectory(src)
+
+if (TARGET yabause-qt)
+    set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT yabause-qt)
+endif()

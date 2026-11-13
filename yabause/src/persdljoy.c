@@ -296,17 +296,19 @@ u32 PERSDLJoyScan( u32 flags ) {
 			{
 				if ( cur < -SDL_MEDIUM_AXIS_VALUE )
 				{
-					if (flags & PERSF_AXIS)
-						return (joyId << 18) | SDL_MEDIUM_AXIS_VALUE | i;
+					// Digital controls request both HAT and AXIS. Preserve the
+					// direction so HandleEvents emits matching key events.
 					if (flags & PERSF_HAT)
 						return (joyId << 18) | SDL_MIN_AXIS_VALUE | i;
+					if (flags & PERSF_AXIS)
+						return (joyId << 18) | SDL_MEDIUM_AXIS_VALUE | i;
 				}
 				else if ( cur > SDL_MEDIUM_AXIS_VALUE )
 				{
-					if (flags & PERSF_AXIS)
-						return (joyId << 18) | SDL_MEDIUM_AXIS_VALUE | i;
 					if (flags & PERSF_HAT)
 						return (joyId << 18) | SDL_MAX_AXIS_VALUE | i;
+					if (flags & PERSF_AXIS)
+						return (joyId << 18) | SDL_MEDIUM_AXIS_VALUE | i;
 				}
 			}
 		}
