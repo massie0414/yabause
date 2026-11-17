@@ -56,3 +56,15 @@ static void setup_layer_scene(void)
    Vdp2Internal.ColorMode = 0;
    for (i = 0; i < 270; i++) Vdp2Lines[i] = *Vdp2Regs;
 }
+
+static void setup_rbg1_scene(int with_rbg0)
+{
+   int i;
+   setup_layer_scene();
+   Vdp2Regs->BGON = 0x20 | (with_rbg0 ? 0x10 : 0);
+   /* RBG1 uses parameter B and the NBG0 character/palette configuration. */
+   memcpy(Vdp2Ram + 0x70080, Vdp2Ram + 0x70000, 0x80);
+   Vdp2Regs->MPABRB = Vdp2Regs->MPCDRB = Vdp2Regs->MPEFRB = Vdp2Regs->MPGHRB = 0x0101;
+   Vdp2Regs->MPIJRB = Vdp2Regs->MPKLRB = Vdp2Regs->MPMNRB = Vdp2Regs->MPOPRB = 0x0101;
+   for (i = 0; i < 270; i++) Vdp2Lines[i] = *Vdp2Regs;
+}

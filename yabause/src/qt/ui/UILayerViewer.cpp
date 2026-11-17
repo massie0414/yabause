@@ -71,6 +71,8 @@ UILayerViewer::UILayerViewer(YabauseThread *emulation, QWidget *parent)
     for (int i = 0; i < 6; ++i)
     {
         QGroupBox *group = new QGroupBox(QString::fromLatin1(names[i]), this);
+        mGroups[i] = group;
+        group->setObjectName(QString::fromLatin1("layerGroup%1").arg(i));
         QVBoxLayout *groupLayout = new QVBoxLayout(group);
         mViews[i] = new LayerPreviewWidget(group);
         mViews[i]->setObjectName(QString::fromLatin1("preview%1").arg(names[i]));
@@ -81,7 +83,7 @@ UILayerViewer::UILayerViewer(YabauseThread *emulation, QWidget *parent)
     for (int i = 0; i < 2; ++i) grid->setRowStretch(i, 1);
     layout->addLayout(grid, 1);
 
-    QLabel *note = new QLabel(tr("Software preview before layer blending. VDP1 shows the current command list; NBG0 also shows RBG1 mode."), this);
+    QLabel *note = new QLabel(tr("Software preview before layer blending. VDP1 shows the current command list."), this);
     note->setWordWrap(true);
     layout->addWidget(note);
 
@@ -137,11 +139,26 @@ void UILayerViewer::refresh()
         // frames, not from swapBuffers while a renderer is still on the stack.
         available = VIDSoftRenderLayerPreviews(layers, &width, &height) == 0;
     }
+    // RBG1 shares NBG0's renderer, but belongs in the rotation preview slot.
+    // NBG0 is unavailable in RBG1 mode, so its slot can show a concurrent RBG0.
+    int sources[6] = { 0, 1, 2, 3, 4, 5 };
+    const char *names[6] = { "VDP1", "NBG0", "NBG1", "NBG2", "NBG3", "RBG0" };
+    if (available && (Vdp2Regs->BGON & 0x20))
+    {
+        sources[1] = 5;
+        sources[5] = 1;
+        names[1] = (Vdp2Regs->BGON & 0x10) ? "RBG0" : "NBG0";
+        names[5] = "RBG1";
+    }
     for (int i = 0; i < 6; ++i)
+    {
+        mGroups[i]->setTitle(QString::fromLatin1(names[i]));
+        mViews[i]->setObjectName(QString::fromLatin1("preview%1").arg(names[i]));
         mViews[i]->setImage(available
-            ? QImage(reinterpret_cast<const uchar *>(mPixels[i].constData()),
+            ? QImage(reinterpret_cast<const uchar *>(mPixels[sources[i]].constData()),
                 width, height, width * 4, QImage::Format_ARGB32).copy()
             : QImage());
+    }
     mStatus->setText(available ? tr("%1 x %2 per layer").arg(width).arg(height)
                               : tr("Start emulation to view layers."));
     // At most five captures per second; slow captures reduce their own rate.

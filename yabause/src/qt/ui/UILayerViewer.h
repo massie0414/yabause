@@ -8,6 +8,7 @@
 class YabauseThread;
 class LayerPreviewWidget;
 class QCheckBox;
+class QGroupBox;
 class QLabel;
 class QTimer;
 
@@ -30,6 +31,7 @@ private slots:
 private:
     YabauseThread *mEmulation;
     LayerPreviewWidget *mViews[6];
+    QGroupBox *mGroups[6];
     QVector<quint32> mPixels[6];
     QCheckBox *mAutoRefresh;
     QLabel *mStatus;

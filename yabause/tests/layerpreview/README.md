@@ -13,3 +13,6 @@ pixels, display switches, live registers/VRAM/framebuffers/compositor preservati
 active software render workers, maximum interlaced dimensions, display-off clearing,
 and teardown are checked. The first capture runs without initializing the software
 video backend, as when the main window uses another renderer.
+
+RBG1 fixtures also check its independent display bit (0x20), its parameter-B
+preview while main display switches are off, and simultaneous RBG0/RBG1 images.

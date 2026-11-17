@@ -148,7 +148,11 @@ UIYabause::UIYabause( QWidget* parent )
 	// Keep the selected layers in the actions, including before emulation starts.
 	foreach ( QAction* action, mViewLayer->actions() )
 	{
-		action->setChecked( vs->value( "View/Layers/" + action->objectName(), true ).toBool() );
+		// Before RBG1 had its own switch it appeared in the NBG0 preview.
+		// Use the old NBG0 preference only until an RBG1 preference is saved.
+		bool defaultChecked = action == aViewLayerRBG1
+			? vs->value( "View/Layers/aViewLayerNBG0", true ).toBool() : true;
+		action->setChecked( vs->value( "View/Layers/" + action->objectName(), defaultChecked ).toBool() );
 		connect( action, SIGNAL( triggered( bool ) ), this, SLOT( applyLayerActions() ) );
 	}
 	applyLayerActions();
@@ -1084,12 +1088,13 @@ void UIYabause::applyLayerActions()
 {
 	// Reapply the user's selection after initialization/reset restores the core defaults.
 	Vdp1External.disptoggle = aViewLayerVdp1->isChecked() ? 1 : 0;
-	Vdp2External.disptoggle = (Vdp2External.disptoggle & ~0x1F)
+	Vdp2External.disptoggle = (Vdp2External.disptoggle & ~0x3F)
 		| (aViewLayerNBG0->isChecked() ? 0x01 : 0)
 		| (aViewLayerNBG1->isChecked() ? 0x02 : 0)
 		| (aViewLayerNBG2->isChecked() ? 0x04 : 0)
 		| (aViewLayerNBG3->isChecked() ? 0x08 : 0)
-		| (aViewLayerRBG0->isChecked() ? 0x10 : 0);
+		| (aViewLayerRBG0->isChecked() ? 0x10 : 0)
+		| (aViewLayerRBG1->isChecked() ? 0x20 : 0);
 }
 
 QMenu* UIYabause::layerMenuWindow() const

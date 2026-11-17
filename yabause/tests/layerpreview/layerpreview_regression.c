@@ -80,6 +80,36 @@ static void capture_and_check(int software)
    free(fb);
 }
 
+static void check_rbg1(pixel_t *output)
+{
+   int w, h, i;
+   pixel_t enabled;
+   setup_rbg1_scene(0);
+   Vdp1External.disptoggle = 0;
+   Vdp2External.disptoggle = 0x20;
+   VIDSoft.Vdp2DrawStart();
+   VIDSoft.Vdp2DrawScreens();
+   TitanRender(output);
+   enabled = output[20 * 320 + 20];
+   check((enabled & 0xFFFFFF) != 0, "RBG1-only display switch draws the main image");
+   /* The old menu could only change bits 0..4; bit 5 must now be controlled. */
+   Vdp2External.disptoggle = 0x1F;
+   VIDSoft.Vdp2DrawStart();
+   VIDSoft.Vdp2DrawScreens();
+   TitanRender(output);
+   check(output[20 * 320 + 20] != enabled, "RBG1 is hidden even when every other switch is on");
+   Vdp2External.disptoggle = 0;
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "RBG1-only preview capture");
+   check(images[1][20 * w + 20] == 0xFFF80000, "RBG1 preview uses parameter B");
+   check(images[5][20 * w + 20] == 0, "RBG0 is empty in RBG1-only mode");
+   for (i = 2; i < 5; i++) check(images[i][20 * w + 20] == 0, "unused normal backgrounds stay empty");
+   check(Vdp2External.disptoggle == 0, "RBG1 preview preserves display switches");
+   setup_rbg1_scene(1);
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "both rotation backgrounds captured");
+   check(images[1][20 * w + 20] == 0xFFF80000, "RBG1 keeps its separate image");
+   check(images[5][20 * w + 20] == 0xFF00F8F8, "RBG0 keeps its separate image");
+}
+
 int main(void)
 {
    int i, w, h;
@@ -103,6 +133,8 @@ int main(void)
    capture_and_check(1);
    TitanRender(after);
    check(!memcmp(before, after, 704 * 512 * sizeof(pixel_t)), "live compositor pixels preserved");
+   check_rbg1(after);
+   setup_layer_scene();
    VIDSoftSetVdp1ThreadEnable(1);
    VIDSoftSetNumLayerThreads(3);
    for (i = 0; i < 3; i++)
