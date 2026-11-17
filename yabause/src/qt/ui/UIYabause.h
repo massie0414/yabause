@@ -86,6 +86,7 @@ protected:
 	QTextEdit* teLog;
 	bool mCanLog;
 	bool mInit;
+	QMenu* layerMenuWindow() const;
 	QList <cheatsearch_struct> search;
 	int searchType;
 	QList <supportedRes_struct> supportedResolutions;
@@ -135,6 +136,7 @@ protected slots:
 	void fullscreenRequested( bool fullscreen );
 	void refreshStatesActions();
 	void refreshLayerActions();
+	void restoreLayerMenu();
    void adjustHeight(int & height);
    void resizeIntegerScaling();
 	// file menu

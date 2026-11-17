@@ -197,18 +197,24 @@ void UIYabause::showEvent( QShowEvent* e )
 		aEmulationFrameSkipLimiter->setChecked( vs->value( "General/EnableFrameSkipLimiter" ).toBool() );
 		aViewFPS->setChecked( vs->value( "General/ShowFPS" ).toBool() );
 		mInit = true;
+		QTimer::singleShot( 0, this, SLOT( restoreLayerMenu() ) );
 	}
 }
 
 void UIYabause::closeEvent( QCloseEvent* e )
 {
+	Settings* vs = QtYabause::settings();
+	// Save before fullscreen changes or closing the main window can hide the tool window.
+	vs->setValue( "View/LayerMenuVisible", mViewLayer->isTearOffMenuVisible() );
+	if ( QMenu* menu = layerMenuWindow() )
+		vs->setValue( "View/LayerMenuGeometry", menu->saveGeometry() );
+
 	aEmulationPause->trigger();
 	LogStop();
 
 	if (isFullScreen())
 		// Need to switch out of full screen or the geometry settings get saved
 		fullscreenRequested( false );
-	Settings* vs = QtYabause::settings();
 	vs->setValue( "General/Geometry", saveGeometry() );
 	vs->sync();
 
@@ -1085,6 +1091,31 @@ void UIYabause::refreshLayerActions()
 	aViewLayerNBG2->setChecked( (Vdp2External.disptoggle & 0x04) != 0 );
 	aViewLayerNBG3->setChecked( (Vdp2External.disptoggle & 0x08) != 0 );
 	aViewLayerRBG0->setChecked( (Vdp2External.disptoggle & 0x10) != 0 );
+}
+
+QMenu* UIYabause::layerMenuWindow() const
+{
+	// The detached menu shares the layer actions, but QMenu has no public window accessor.
+	foreach ( QWidget* widget, aViewLayerVdp1->associatedWidgets() )
+	{
+		QMenu* menu = qobject_cast<QMenu*>( widget );
+		if ( menu && menu != mViewLayer && menu->windowType() == Qt::Tool )
+			return menu;
+	}
+	return 0;
+}
+
+void UIYabause::restoreLayerMenu()
+{
+#if QT_VERSION >= QT_VERSION_CHECK(5, 7, 0)
+	Settings* settings = QtYabause::settings();
+	if ( !settings->value( "View/LayerMenuVisible", false ).toBool() )
+		return;
+
+	mViewLayer->showTearOffMenu( mapToGlobal( QPoint( 0, menubar->height() ) ) );
+	if ( QMenu* menu = layerMenuWindow() )
+		menu->restoreGeometry( settings->value( "View/LayerMenuGeometry" ).toByteArray() );
+#endif
 }
 
 void UIYabause::on_aViewFullscreen_triggered( bool b )
