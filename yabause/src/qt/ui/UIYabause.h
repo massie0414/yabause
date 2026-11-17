@@ -134,6 +134,7 @@ protected slots:
 	void toggleFullscreen( int width, int height, bool f, int videoFormat );
 	void fullscreenRequested( bool fullscreen );
 	void refreshStatesActions();
+	void refreshLayerActions();
    void adjustHeight(int & height);
    void resizeIntegerScaling();
 	// file menu

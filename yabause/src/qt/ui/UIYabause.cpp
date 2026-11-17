@@ -1076,6 +1076,17 @@ void UIYabause::on_aViewLayerNBG3_triggered()
 void UIYabause::on_aViewLayerRBG0_triggered()
 { ToggleRBG0(); }
 
+void UIYabause::refreshLayerActions()
+{
+	// Initialization and reset can change the display masks independently of the menu.
+	aViewLayerVdp1->setChecked( Vdp1External.disptoggle != 0 );
+	aViewLayerNBG0->setChecked( (Vdp2External.disptoggle & 0x01) != 0 );
+	aViewLayerNBG1->setChecked( (Vdp2External.disptoggle & 0x02) != 0 );
+	aViewLayerNBG2->setChecked( (Vdp2External.disptoggle & 0x04) != 0 );
+	aViewLayerNBG3->setChecked( (Vdp2External.disptoggle & 0x08) != 0 );
+	aViewLayerRBG0->setChecked( (Vdp2External.disptoggle & 0x10) != 0 );
+}
+
 void UIYabause::on_aViewFullscreen_triggered( bool b )
 {
 	fullscreenRequested( b );
@@ -1274,6 +1285,7 @@ void UIYabause::on_cbVideoDriver_currentIndexChanged( int id )
 void UIYabause::pause( bool paused )
 {
 	mYabauseGL->updateView();
+	refreshLayerActions();
 	
 	aEmulationRun->setEnabled( paused );
 	aEmulationPause->setEnabled( !paused );
@@ -1283,6 +1295,7 @@ void UIYabause::pause( bool paused )
 void UIYabause::reset()
 {
 	mYabauseGL->updateView();
+	refreshLayerActions();
 }
 
 void UIYabause::toggleEmulateMouse( bool enable )

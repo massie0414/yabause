@@ -194,6 +194,9 @@
      <property name="title">
       <string>&amp;Layer</string>
      </property>
+     <property name="tearOffEnabled">
+      <bool>true</bool>
+     </property>
      <property name="icon">
       <iconset resource="../resources/resources.qrc">
        <normaloff>:/actions/icons/actions/layer.png</normaloff>:/actions/icons/actions/layer.png</iconset>
