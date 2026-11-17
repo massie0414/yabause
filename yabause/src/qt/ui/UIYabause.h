@@ -135,7 +135,7 @@ protected slots:
 	void toggleFullscreen( int width, int height, bool f, int videoFormat );
 	void fullscreenRequested( bool fullscreen );
 	void refreshStatesActions();
-	void refreshLayerActions();
+	void applyLayerActions();
 	void restoreLayerMenu();
    void adjustHeight(int & height);
    void resizeIntegerScaling();
@@ -162,12 +162,6 @@ protected slots:
 	void on_aToolsTransfer_triggered();
 	// view menu
 	void on_aViewFPS_triggered( bool toggled );
-	void on_aViewLayerVdp1_triggered();
-	void on_aViewLayerNBG0_triggered();
-	void on_aViewLayerNBG1_triggered();
-	void on_aViewLayerNBG2_triggered();
-	void on_aViewLayerNBG3_triggered();
-	void on_aViewLayerRBG0_triggered();
 	void on_aViewFullscreen_triggered( bool b );
 	// debug menu
 	void on_aViewDebugMSH2_triggered();

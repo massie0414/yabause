@@ -141,6 +141,14 @@ UIYabause::UIYabause( QWidget* parent )
 
 	// Load shortcuts
 	VolatileSettings* vs = QtYabause::volatileSettings();
+	// Keep the selected layers in the actions, including before emulation starts.
+	foreach ( QAction* action, mViewLayer->actions() )
+	{
+		action->setChecked( vs->value( "View/Layers/" + action->objectName(), true ).toBool() );
+		connect( action, SIGNAL( triggered( bool ) ), this, SLOT( applyLayerActions() ) );
+	}
+	applyLayerActions();
+
 	QList<QAction *> actions = findChildren<QAction *>();
 	foreach ( QAction* action, actions )
 	{
@@ -208,6 +216,8 @@ void UIYabause::closeEvent( QCloseEvent* e )
 	vs->setValue( "View/LayerMenuVisible", mViewLayer->isTearOffMenuVisible() );
 	if ( QMenu* menu = layerMenuWindow() )
 		vs->setValue( "View/LayerMenuGeometry", menu->saveGeometry() );
+	foreach ( QAction* action, mViewLayer->actions() )
+		vs->setValue( "View/Layers/" + action->objectName(), action->isChecked() );
 
 	aEmulationPause->trigger();
 	LogStop();
@@ -1064,33 +1074,16 @@ void UIYabause::on_aViewFPS_triggered( bool toggled )
 	SetOSDToggle(toggled ? 1 : 0);
 }
 
-void UIYabause::on_aViewLayerVdp1_triggered()
-{ ToggleVDP1(); }
-
-void UIYabause::on_aViewLayerNBG0_triggered()
-{ ToggleNBG0(); }
-
-void UIYabause::on_aViewLayerNBG1_triggered()
-{ ToggleNBG1(); }
-
-void UIYabause::on_aViewLayerNBG2_triggered()
-{ ToggleNBG2(); }
-
-void UIYabause::on_aViewLayerNBG3_triggered()
-{ ToggleNBG3(); }
-
-void UIYabause::on_aViewLayerRBG0_triggered()
-{ ToggleRBG0(); }
-
-void UIYabause::refreshLayerActions()
+void UIYabause::applyLayerActions()
 {
-	// Initialization and reset can change the display masks independently of the menu.
-	aViewLayerVdp1->setChecked( Vdp1External.disptoggle != 0 );
-	aViewLayerNBG0->setChecked( (Vdp2External.disptoggle & 0x01) != 0 );
-	aViewLayerNBG1->setChecked( (Vdp2External.disptoggle & 0x02) != 0 );
-	aViewLayerNBG2->setChecked( (Vdp2External.disptoggle & 0x04) != 0 );
-	aViewLayerNBG3->setChecked( (Vdp2External.disptoggle & 0x08) != 0 );
-	aViewLayerRBG0->setChecked( (Vdp2External.disptoggle & 0x10) != 0 );
+	// Reapply the user's selection after initialization/reset restores the core defaults.
+	Vdp1External.disptoggle = aViewLayerVdp1->isChecked() ? 1 : 0;
+	Vdp2External.disptoggle = (Vdp2External.disptoggle & ~0x1F)
+		| (aViewLayerNBG0->isChecked() ? 0x01 : 0)
+		| (aViewLayerNBG1->isChecked() ? 0x02 : 0)
+		| (aViewLayerNBG2->isChecked() ? 0x04 : 0)
+		| (aViewLayerNBG3->isChecked() ? 0x08 : 0)
+		| (aViewLayerRBG0->isChecked() ? 0x10 : 0);
 }
 
 QMenu* UIYabause::layerMenuWindow() const
@@ -1315,8 +1308,8 @@ void UIYabause::on_cbVideoDriver_currentIndexChanged( int id )
 
 void UIYabause::pause( bool paused )
 {
+	applyLayerActions();
 	mYabauseGL->updateView();
-	refreshLayerActions();
 	
 	aEmulationRun->setEnabled( paused );
 	aEmulationPause->setEnabled( !paused );
@@ -1325,8 +1318,8 @@ void UIYabause::pause( bool paused )
 
 void UIYabause::reset()
 {
+	applyLayerActions();
 	mYabauseGL->updateView();
-	refreshLayerActions();
 }
 
 void UIYabause::toggleEmulateMouse( bool enable )
