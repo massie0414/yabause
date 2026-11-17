@@ -28,6 +28,7 @@
 #include "UIDebugSH2.h"
 #include "UIDebugVDP1.h"
 #include "UIDebugVDP2.h"
+#include "UILayerViewer.h"
 #include "UIDebugM68K.h"
 #include "UIDebugSCUDSP.h"
 #include "UIDebugSCSP.h"
@@ -121,6 +122,9 @@ UIYabause::UIYabause( QWidget* parent )
 
 	// create emulator thread
 	mYabauseThread = new YabauseThread( this );
+	mLayerViewer = new UILayerViewer( mYabauseThread, this );
+	connect( aViewLayerViewer, SIGNAL( toggled( bool ) ), mLayerViewer, SLOT( setVisible( bool ) ) );
+	connect( mLayerViewer, SIGNAL( visibilityChanged( bool ) ), aViewLayerViewer, SLOT( setChecked( bool ) ) );
 	// create hide mouse timer
 	hideMouseTimer = new QTimer();
 	// create mouse cursor timer
@@ -213,6 +217,8 @@ void UIYabause::closeEvent( QCloseEvent* e )
 {
 	Settings* vs = QtYabause::settings();
 	// Save before fullscreen changes or closing the main window can hide the tool window.
+	vs->setValue( "View/LayerViewerVisible", mLayerViewer->isVisible() );
+	vs->setValue( "View/LayerViewerGeometry", mLayerViewer->saveGeometry() );
 	vs->setValue( "View/LayerMenuVisible", mViewLayer->isTearOffMenuVisible() );
 	if ( QMenu* menu = layerMenuWindow() )
 		vs->setValue( "View/LayerMenuGeometry", menu->saveGeometry() );
@@ -1100,8 +1106,10 @@ QMenu* UIYabause::layerMenuWindow() const
 
 void UIYabause::restoreLayerMenu()
 {
-#if QT_VERSION >= QT_VERSION_CHECK(5, 7, 0)
 	Settings* settings = QtYabause::settings();
+	mLayerViewer->restoreGeometry( settings->value( "View/LayerViewerGeometry" ).toByteArray() );
+	aViewLayerViewer->setChecked( settings->value( "View/LayerViewerVisible", false ).toBool() );
+#if QT_VERSION >= QT_VERSION_CHECK(5, 7, 0)
 	if ( !settings->value( "View/LayerMenuVisible", false ).toBool() )
 		return;
 

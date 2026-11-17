@@ -33,6 +33,7 @@ extern "C" {
 class YabauseGLProxy;
 class QTextEdit;
 class QDockWidget;
+class UILayerViewer;
 
 enum BARDISPLAY
 {
@@ -83,6 +84,7 @@ protected:
 	YabauseGLProxy* mYabauseGL;
 	YabauseThread* mYabauseThread;
 	QDockWidget* mLogDock;
+	UILayerViewer* mLayerViewer;
 	QTextEdit* teLog;
 	bool mCanLog;
 	bool mInit;

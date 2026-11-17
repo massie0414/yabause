@@ -30,6 +30,15 @@ extern VideoInterface_struct VIDSoft;
 
 void VIDSoftVdp2DrawScreen(int screen);
 
+/* Render independent, uncomposited software previews between emulation frames.
+ * Each caller-owned buffer holds 704 * 512 u32 pixels (0xAARRGGBB).
+ * Order: VDP1, NBG0 (RBG1 in rotation mode), NBG1, NBG2, NBG3, RBG0.
+ * Transparent pixels are zero; width/height describe the packed image.
+ * The current VDP1 command list is replayed into an empty scratch framebuffer.
+ * Returns 0 on success, -1 if unavailable. Does not change display toggles.
+ */
+int VIDSoftRenderLayerPreviews(u32 *layers[6], int *width, int *height);
+
 void VIDSoftSetBilinear(int b); 
 
 void VIDSoftSetNumPriorityThreads(int num);

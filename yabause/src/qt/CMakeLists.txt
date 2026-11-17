@@ -118,6 +118,7 @@ set( yabause_qt_HEADERS
 # C headers needing moc
 set( yabause_qt_MOC_HEADERS
 	ui/UIYabause.h
+	ui/UILayerViewer.h
 	ui/UISettings.h
 	ui/UIAbout.h
 	ui/UICheats.h
@@ -165,6 +166,7 @@ set( yabause_qt_SOURCES
 	CommonDialogs.cpp
 	PerQt.c
 	ui/UIYabause.cpp
+	ui/UILayerViewer.cpp
 	ui/UISettings.cpp
 	ui/UIAbout.cpp
 	ui/UICheats.cpp

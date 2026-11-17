@@ -210,6 +210,7 @@
     </widget>
     <addaction name="aViewFPS"/>
     <addaction name="mViewLayer"/>
+    <addaction name="aViewLayerViewer"/>
     <addaction name="aViewFullscreen"/>
     <addaction name="aViewLog"/>
    </widget>
@@ -638,6 +639,14 @@
    </property>
    <property name="shortcut">
     <string>5</string>
+   </property>
+  </action>
+  <action name="aViewLayerViewer">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Layer &amp;Viewer</string>
    </property>
   </action>
   <action name="aViewLayerRBG0">
