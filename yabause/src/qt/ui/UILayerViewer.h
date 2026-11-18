@@ -39,6 +39,7 @@ private:
     QList<QPointer<UILayerViewer> > mViewers;
     QVector<quint32> mPixels[VIDSOFT_LAYER_PREVIEW_COUNT];
     QImage mImages[VIDSOFT_LAYER_PREVIEW_COUNT];
+    u32 mDistortedSpriteCount;
     QTimer *mTimer;
 };
 
@@ -62,11 +63,12 @@ private slots:
 private:
     friend class UILayerPreviewSource;
     bool autoRefresh() const;
-    void displayImages(const QImage *images);
+    void displayImages(const QImage *images, u32 distortedSpriteCount);
     QPointer<UILayerPreviewSource> mSource;
     Kind mKind;
     LayerPreviewWidget *mViews[6];
     QCheckBox *mAutoRefresh;
+    QLabel *mSpriteCount;
     QLabel *mStatus;
 };
 

@@ -14,6 +14,11 @@ active software render workers, maximum interlaced dimensions, display-off clear
 and teardown are checked. The first capture runs without initializing the software
 video backend, as when the main window uses another renderer.
 
+Distorted sprite counts are checked against the preview: one per executed draw,
+including command type 3 and repeated CALL/RETURN visits. Other primitives,
+skipped/unreachable/end commands are excluded. Each capture resets the count,
+including display-off, empty-list, and unavailable captures.
+
 RBG1 fixtures also check its independent display bit (0x20), its parameter-B
 preview while main display switches are off, and simultaneous RBG0/RBG1 images.
 The seven outputs have fixed identities: VDP1, NBG0..3, RBG0, RBG1. Mode changes

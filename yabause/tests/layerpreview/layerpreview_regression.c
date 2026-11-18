@@ -32,6 +32,7 @@ static void check(int condition, const char *message)
 static void capture_and_check(int software)
 {
    int i, width, height, titan_w, titan_h, after_w, after_h;
+   u32 sprite_count = 99;
    Vdp1 before1 = *Vdp1Regs;
    Vdp2 before2 = *Vdp2Regs;
    VideoInterface_struct *core = VIDCore;
@@ -53,7 +54,8 @@ static void capture_and_check(int software)
    Vdp1External.manualerase = 1;
    TitanGetResolution(&titan_w, &titan_h);
    for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++) images[i][704 * 512] = 0x12345678;
-   check(VIDSoftRenderLayerPreviews(layers, &width, &height) == 0, "capture succeeds");
+   check(VIDSoftRenderLayerPreviews(layers, &width, &height, &sprite_count) == 0, "capture succeeds");
+   check(sprite_count == 0, "normal sprites do not count as distorted sprites");
    check(width == 320 && height == 224, "native preview dimensions");
    for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++)
    {
@@ -80,6 +82,60 @@ static void capture_and_check(int software)
    free(fb);
 }
 
+static void check_distorted_sprites(void)
+{
+   int i, w, h;
+   u32 sprite_count = 99;
+   const u16 commands[] = { 0, 1, 4, 0x4002, 2, 3, 0x8002 };
+   setup_layer_scene();
+   Vdp1External.disptoggle = 0;
+   T1WriteWord(Vdp1Ram, 0, 2);
+   T1WriteWord(Vdp1Ram, 0x10, 23);
+   T1WriteWord(Vdp1Ram, 0x12, 16);
+   T1WriteWord(Vdp1Ram, 0x14, 23);
+   T1WriteWord(Vdp1Ram, 0x16, 23);
+   T1WriteWord(Vdp1Ram, 0x18, 16);
+   T1WriteWord(Vdp1Ram, 0x1A, 23);
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, &sprite_count) == 0, "single distorted sprite capture");
+   check(sprite_count == 1, "one distorted sprite draw counts as one");
+   check(images[0][20 * w + 20] == 0xFFF800F8, "count accompanies the rendered distorted sprite");
+   T1WriteWord(Vdp1Ram, 0, 3);
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, &sprite_count) == 0 && sprite_count == 1,
+      "type 3 distorted sprite counts once and capture resets the count");
+
+   for (i = 1; i < sizeof(commands) / sizeof(commands[0]); i++)
+      memcpy(Vdp1Ram + i * 0x20, Vdp1Ram, 0x20);
+   for (i = 0; i < sizeof(commands) / sizeof(commands[0]); i++)
+      T1WriteWord(Vdp1Ram, i * 0x20, commands[i]);
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, &sprite_count) == 0 && sprite_count == 2,
+      "exclude normal/scaled sprites, polygons, skipped draws and end commands");
+
+   /* Call the same sprite twice; a third sprite is never reached. */
+   T1WriteWord(Vdp1Ram, 0, 0x6000);
+   T1WriteWord(Vdp1Ram, 2, 0x10);
+   T1WriteWord(Vdp1Ram, 0x20, 0x6000);
+   T1WriteWord(Vdp1Ram, 0x22, 0x10);
+   T1WriteWord(Vdp1Ram, 0x40, 0x8000);
+   T1WriteWord(Vdp1Ram, 0x60, 2);
+   T1WriteWord(Vdp1Ram, 0x80, 0x3002);
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, &sprite_count) == 0 && sprite_count == 2,
+      "count each execution through CALL/RETURN, excluding unreachable sprites");
+   T1WriteWord(Vdp1Ram, 0x20, 0x8000);
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, &sprite_count) == 0 && sprite_count == 1,
+      "a later capture can decrease the count");
+   Vdp2Regs->TVMD = 0;
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, &sprite_count) == 0 && sprite_count == 0,
+      "display off clears the count with the image");
+   Vdp2Regs->TVMD = 0x8000;
+   T1WriteWord(Vdp1Ram, 0, 0x8000);
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, &sprite_count) == 0 && sprite_count == 0,
+      "empty command list has no distorted sprites");
+   sprite_count = 99;
+   check(VIDSoftRenderLayerPreviews(NULL, &w, &h, &sprite_count) == -1 && sprite_count == 0,
+      "unavailable capture clears stale counts");
+   setup_layer_scene();
+}
+
 static void check_rbg1(pixel_t *output)
 {
    int w, h, i;
@@ -99,19 +155,19 @@ static void check_rbg1(pixel_t *output)
    TitanRender(output);
    check(output[20 * 320 + 20] != enabled, "RBG1 is hidden even when every other switch is on");
    Vdp2External.disptoggle = 0;
-   check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "RBG1-only preview capture");
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == 0, "RBG1-only preview capture");
    check(images[6][20 * w + 20] == 0xFFF80000, "RBG1 preview uses its own fixed output and parameter B");
    check(images[1][20 * w + 20] == 0, "NBG0 stays empty in RBG1 mode");
    check(images[5][20 * w + 20] == 0, "RBG0 is empty in RBG1-only mode");
    for (i = 2; i < 5; i++) check(images[i][20 * w + 20] == 0, "unused normal backgrounds stay empty");
    check(Vdp2External.disptoggle == 0, "RBG1 preview preserves display switches");
    setup_rbg1_scene(1);
-   check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "both rotation backgrounds captured");
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == 0, "both rotation backgrounds captured");
    check(images[6][20 * w + 20] == 0xFFF80000, "RBG1 keeps its separate image");
    check(images[1][20 * w + 20] == 0, "NBG0 does not contain either rotation background");
    check(images[5][20 * w + 20] == 0xFF00F8F8, "RBG0 keeps its separate image");
    setup_layer_scene();
-   check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "return to normal background mode");
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == 0, "return to normal background mode");
    check(images[1][20 * w + 20] == 0xFFF80000 && images[6][20 * w + 20] == 0,
       "normal mode restores NBG0 and clears the old RBG1 image");
 }
@@ -126,6 +182,7 @@ int main(void)
    if (YabauseInit(&init) != 0) return 2;
    setup_layer_scene();
    capture_and_check(0); /* No software renderer or Titan initialization. */
+   check_distorted_sprites();
    VideoUseGL = 0;
    check(VideoChangeCore(VIDCORE_SOFT) == 0, "initialize software renderer without GL");
    setup_layer_scene();
@@ -139,6 +196,7 @@ int main(void)
    capture_and_check(1);
    TitanRender(after);
    check(!memcmp(before, after, 704 * 512 * sizeof(pixel_t)), "live compositor pixels preserved");
+   check_distorted_sprites();
    check_rbg1(after);
    setup_layer_scene();
    VIDSoftSetVdp1ThreadEnable(1);
@@ -148,22 +206,22 @@ int main(void)
       Vdp1Regs->addr = 0;
       VIDSoft.Vdp1DrawStart();
       VIDSoft.Vdp2DrawScreens();
-      check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "capture waits for active renderer workers");
+      check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == 0, "capture waits for active renderer workers");
    }
    VIDSoftSetVdp1ThreadEnable(0);
    VIDSoftSetNumLayerThreads(0);
    Vdp2Regs->TVMD = 0x80E3; /* 704 x 512, double-density interlace. */
-   check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0 && w == 704 && h == 512, "maximum interlaced dimensions");
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == 0 && w == 704 && h == 512, "maximum interlaced dimensions");
    for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++) check(images[i][704 * 512] == 0x12345678, "interlaced output bounds");
    T1WriteLong(Vdp2Ram, 0x70020, 0x8000); /* Rotate/shear: use the non-coefficient path. */
-   check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "rotated interlaced background capture");
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == 0, "rotated interlaced background capture");
    check(images[5][500 * w + 500] == 0xFF00F8F8, "rotated background fills the last field rows");
    for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++) check(images[i][704 * 512] == 0x12345678, "rotated output bounds");
    Vdp2Regs->TVMD = 0;
-   check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "display off capture");
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == 0, "display off capture");
    for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++) check(images[i][20 * w + 20] == 0, "display off clears old images");
    YabauseDeInit();
-   check(VIDSoftRenderLayerPreviews(layers, &w, &h) == -1, "capture after teardown rejected");
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == -1, "capture after teardown rejected");
    free(before); free(after);
    printf("Layer preview failures: %d\n", failures);
    return failures ? 1 : 0;

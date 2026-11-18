@@ -461,10 +461,11 @@ void FASTCALL Sh2Vdp1WriteLong(SH2_struct *sh, u32 addr, UNUSED u32 val) {
 
 //////////////////////////////////////////////////////////////////////////////
 
-void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
+u32 Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
 {
    u16 command = T1ReadWord(ram, regs->addr);
    u32 commandCounter = 0;
+   u32 distortedSpriteCount = 0;
    u32 returnAddr = 0xffffffff;
 
    while (!(command & 0x8000) && commandCounter < 2000) { // fix me
@@ -481,6 +482,7 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
          case 3: /* this one should be invalid, but some games
                  (Hardcore 4x4 for instance) use it instead of 2 */
             VIDCore->Vdp1DistortedSpriteDraw(ram, regs, back_framebuffer);
+            distortedSpriteCount++;
             break;
          case 4: // polygon draw
             VIDCore->Vdp1PolygonDraw(ram, regs, back_framebuffer);
@@ -508,7 +510,7 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
             VIDCore->Vdp1DrawEnd();
             regs->LOPR = regs->addr >> 3;
             regs->COPR = regs->addr >> 3;
-            return;
+            return distortedSpriteCount;
          }
       }
 
@@ -539,6 +541,7 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
       command = T1ReadWord(ram, regs->addr);
       commandCounter++;
    }
+   return distortedSpriteCount;
 }
 
 //ensure that registers are set correctly 

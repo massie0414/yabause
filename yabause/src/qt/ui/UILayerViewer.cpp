@@ -54,7 +54,7 @@ private:
 };
 
 UILayerPreviewSource::UILayerPreviewSource(YabauseThread *emulation, QObject *parent)
-    : QObject(parent), mEmulation(emulation), mTimer(new QTimer(this))
+    : QObject(parent), mEmulation(emulation), mDistortedSpriteCount(0), mTimer(new QTimer(this))
 {
     mTimer->setSingleShot(true);
     connect(mTimer, SIGNAL(timeout()), this, SLOT(refreshAutomatic()));
@@ -83,6 +83,7 @@ int UILayerPreviewSource::capture()
     QElapsedTimer elapsed;
     elapsed.start();
     int width = 0, height = 0;
+    mDistortedSpriteCount = 0;
     bool available = mEmulation->init() == 0;
     if (available)
     {
@@ -94,7 +95,7 @@ int UILayerPreviewSource::capture()
         }
         // Emulation and this timer run on the GUI thread. Capture between
         // frames, not from swapBuffers while a renderer is still on the stack.
-        available = VIDSoftRenderLayerPreviews(layers, &width, &height) == 0;
+        available = VIDSoftRenderLayerPreviews(layers, &width, &height, &mDistortedSpriteCount) == 0;
     }
     for (int i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; ++i)
         mImages[i] = available
@@ -109,7 +110,7 @@ void UILayerPreviewSource::refreshAutomatic()
     if (!needsRefresh()) return;
     const int delay = capture();
     foreach (const QPointer<UILayerViewer> &viewer, mViewers)
-        if (viewer && viewer->autoRefresh()) viewer->displayImages(mImages);
+        if (viewer && viewer->autoRefresh()) viewer->displayImages(mImages, mDistortedSpriteCount);
     updateTimer(delay);
 }
 
@@ -117,12 +118,12 @@ void UILayerPreviewSource::refreshViewer(UILayerViewer *viewer)
 {
     mTimer->stop();
     const int delay = capture();
-    viewer->displayImages(mImages);
+    viewer->displayImages(mImages, mDistortedSpriteCount);
     updateTimer(delay);
 }
 
 UILayerViewer::UILayerViewer(UILayerPreviewSource *source, Kind kind, QWidget *parent)
-    : QDialog(parent, Qt::Window), mSource(source), mKind(kind)
+    : QDialog(parent, Qt::Window), mSource(source), mKind(kind), mSpriteCount(NULL)
 {
     const bool vdp1 = mKind == VDP1;
     setObjectName(vdp1 ? "vdp1LayerViewer" : "layerViewer");
@@ -152,6 +153,14 @@ UILayerViewer::UILayerViewer(UILayerPreviewSource *source, Kind kind, QWidget *p
     for (int i = 0; i < (vdp1 ? 1 : 3); ++i) grid->setColumnStretch(i, 1);
     for (int i = 0; i < (vdp1 ? 1 : 2); ++i) grid->setRowStretch(i, 1);
     layout->addLayout(grid, 1);
+
+    if (vdp1)
+    {
+        mSpriteCount = new QLabel(tr("Distorted sprites: -"), this);
+        mSpriteCount->setObjectName("vdp1DistortedSpriteCount");
+        mSpriteCount->setToolTip(tr("Each distorted sprite draw counts as one. Updated with the preview."));
+        layout->addWidget(mSpriteCount);
+    }
 
     QLabel *note = new QLabel(vdp1
         ? tr("Software preview of the current VDP1 command list.")
@@ -199,12 +208,15 @@ bool UILayerViewer::autoRefresh() const
     return isVisible() && mAutoRefresh->isChecked();
 }
 
-void UILayerViewer::displayImages(const QImage *images)
+void UILayerViewer::displayImages(const QImage *images, u32 distortedSpriteCount)
 {
     const int count = mKind == VDP1 ? 1 : 6;
     const int first = mKind == VDP1 ? 0 : 1;
     for (int i = 0; i < count; ++i) mViews[i]->setImage(images[first + i]);
     const QImage &image = images[first];
+    if (mSpriteCount)
+        mSpriteCount->setText(image.isNull() ? tr("Distorted sprites: -")
+            : tr("Distorted sprites: %1").arg(distortedSpriteCount));
     mStatus->setText(image.isNull() ? tr("Start emulation to view layers.")
         : tr("%1 x %2 per layer").arg(image.width()).arg(image.height()));
 }
