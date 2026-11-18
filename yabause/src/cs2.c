@@ -380,14 +380,17 @@ u32 FASTCALL Cs2ReadLong(SH2_struct *sh, u32 addr) {
                      // Make sure we still have sectors to transfer
                      if (Cs2Area->datanumsecttrans < Cs2Area->datasectstotrans)
                      {
-                        // Transfer Data
-                        const u8 *ptr = &Cs2Area->datatranspartition->block[Cs2Area->datanumsecttrans]->data[Cs2Area->datatransoffset];
+                        // The transfer cursor is relative to the requested sector.
+                        block_struct *block = Cs2Area->datatranspartition->block[
+                           Cs2Area->datatranssectpos + Cs2Area->datanumsecttrans];
+                        const u8 *ptr;
 
-                        if (Cs2Area->datatranspartition->block[Cs2Area->datanumsecttrans] == NULL)
+                        if (block == NULL)
                         {
                            CDLOG("cs2\t: datatranspartition->block[Cs2Area->datanumsecttrans] was NULL");
                            return 0;
                         }
+                        ptr = &block->data[Cs2Area->datatransoffset];
 #ifdef WORDS_BIGENDIAN
                         val = *((const u32 *) ptr);
 #else
@@ -399,7 +402,7 @@ u32 FASTCALL Cs2ReadLong(SH2_struct *sh, u32 addr) {
                         Cs2Area->datatransoffset += 4;
 
                         // Make sure we're not beyond the sector size boundary
-                        if (Cs2Area->datatransoffset >= Cs2Area->datatranspartition->block[Cs2Area->datanumsecttrans]->size)
+                        if (Cs2Area->datatransoffset >= block->size)
                         {
                            Cs2Area->datatransoffset = 0;
                            Cs2Area->datanumsecttrans++;
@@ -518,8 +521,10 @@ void FASTCALL Cs2RapidCopyT1(void *dest, u32 count)
 
       while (count > 0 && Cs2Area->datanumsecttrans < Cs2Area->datasectstotrans)
       {
-         const u8 *src = &Cs2Area->datatranspartition->block[Cs2Area->datanumsecttrans]->data[Cs2Area->datatransoffset];
-         const u32 size = Cs2Area->datatranspartition->block[Cs2Area->datanumsecttrans]->size;
+         const block_struct *block = Cs2Area->datatranspartition->block[
+            Cs2Area->datatranssectpos + Cs2Area->datanumsecttrans];
+         const u8 *src = &block->data[Cs2Area->datatransoffset];
+         const u32 size = block->size;
          const u32 max = size - Cs2Area->datatransoffset;
          const u32 copy = (max < count*4) ? max : count*4;
          memcpy(dest8, src, copy);
@@ -587,8 +592,10 @@ void FASTCALL Cs2RapidCopyT2(void *dest, u32 count)
 
       while (count > 0 && Cs2Area->datanumsecttrans < Cs2Area->datasectstotrans)
       {
-         const u8 *src = &Cs2Area->datatranspartition->block[Cs2Area->datanumsecttrans]->data[Cs2Area->datatransoffset];
-         const u32 size = Cs2Area->datatranspartition->block[Cs2Area->datanumsecttrans]->size;
+         const block_struct *block = Cs2Area->datatranspartition->block[
+            Cs2Area->datatranssectpos + Cs2Area->datanumsecttrans];
+         const u8 *src = &block->data[Cs2Area->datatransoffset];
+         const u32 size = block->size;
          const u32 max = size - Cs2Area->datatransoffset;
          const u32 copy = (max < count*4) ? max : count*4;
          u32 i = 0;

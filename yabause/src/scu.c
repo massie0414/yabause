@@ -1039,6 +1039,12 @@ void adjust_ra0_wa0(struct QueuedDma * dma)
 
    if (dma->dsp_dma_type == 1 || dma->dsp_dma_type == 3)
    {
+      if (is_b_bus(dma->dsp_address))
+      {
+         sc->RA0 += dma->dsp_orig_count;
+         return;
+      }
+
       switch (dma->dsp_add_setting)
       {
       case 0:
@@ -1256,7 +1262,7 @@ void scu_dma_tick_dsp(struct QueuedDma * dma)
             }
          }
          else
-            dma->dsp_address += dma->dsp_add;
+            dma->dsp_address += 4;
 
          dma->count--;
       }
@@ -1827,7 +1833,8 @@ void dsp_dma01(scudspregs_struct *sc, u32 inst)
             sc->MD[sel][sc->CT[sel]] = MappedMemoryReadLongNocache(MSH2, (sc->RA0 << 2));
 			sc->CT[sel]++;
 			sc->CT[sel] &= 0x3F;
-			sc->RA0 += (add>>1);
+			// B-bus reads always advance one longword, even with add=0.
+			sc->RA0 += is_b_bus(sc->RA0 << 2) ? 1 : (add >> 1);
 		}
 	}
 
@@ -1972,7 +1979,8 @@ void dsp_dma03(scudspregs_struct *sc, u32 inst)
 			sc->MD[sel][sc->CT[sel]] = MappedMemoryReadLongNocache(MSH2, (sc->RA0 << 2));
 			sc->CT[sel]++;
 			sc->CT[sel] &= 0x3F;
-			sc->RA0 += (add>>1);
+			// B-bus reads always advance one longword, even with add=0.
+			sc->RA0 += is_b_bus(sc->RA0 << 2) ? 1 : (add >> 1);
 		}
 	}
 

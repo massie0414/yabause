@@ -454,7 +454,9 @@ void op1(struct Slot * slot)
    else if (slot->regs.plfows == 3)
       plfo_val = plfo.noise_table[slot->state.lfo_pos];
 
-   plfo_shifted = (plfo_val << slot->regs.plfos) >> 2;
+   // Zero sensitivity disables modulation regardless of the LFO waveform.
+   if (slot->regs.plfos)
+      plfo_shifted = (plfo_val << slot->regs.plfos) >> 2;
 
    slot->state.waveform_phase_value &= (1 << 18) - 1;//18 fractional bits
    slot->state.waveform_phase_value += (phase_increment + plfo_shifted);
@@ -752,7 +754,8 @@ void op5(struct Slot * slot)
       else if (slot->regs.alfows == 3)
          alfo_val = alfo.noise_table[slot->state.lfo_pos];
 
-      lfo_add = (((alfo_val + 1)) >> (7 - slot->regs.alfos)) << 1;
+      if (slot->regs.alfos)
+         lfo_add = (((alfo_val + 1)) >> (7 - slot->regs.alfos)) << 1;
 
       sample = apply_volume(slot->regs.tl, slot->state.attenuation + lfo_add, slot->state.output);
       slot->state.output = sample;
@@ -1377,7 +1380,9 @@ void generate_sample(struct Scsp * s, int rbp, int rbl, s16 * out_l, s16* out_r,
       int pan_val_l = 0, pan_val_r = 0;
       s16 panned_l = 0, panned_r = 0;
       
-      efsdl_applied = dsp_inf.get_effect_out(i) >> efsdl;
+      // EFREG/EXTS contain signed 16-bit PCM. The JIT returns EFREG as an
+      // unsigned bit pattern; restore its sign before attenuating it.
+      efsdl_applied = (s16)dsp_inf.get_effect_out(i) >> efsdl;
 
       get_panning(s->slots[i].regs.efpan, &pan_val_l, &pan_val_r);
 
