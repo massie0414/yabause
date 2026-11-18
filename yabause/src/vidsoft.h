@@ -60,6 +60,28 @@ int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *wi
 int VIDSoftGetVdp1Framebuffer(int back, u32 *pixels, u16 *raw,
    int *width, int *height, int *pixel_size);
 
+/* RBG0 coordinates from the same rasterization as the layer image. A zero
+ * parameter means no sample (disabled, window, coefficient or screen-over).
+ * Geometry is recorded before texture transparency/priority is applied.
+ * x/y are signed pre-wrap coordinates; mapx/mapy are before tile lookup.
+ * kx/ky are the effective 16.16 source scale factors, not display magnification.
+ */
+typedef struct {
+   int x, y;
+   s32 kx, ky;
+   u16 mapx, mapy;
+   u8 parameter; /* 1 = A, 2 = B */
+} VIDSoftRbg0Sample;
+
+typedef struct {
+   VIDSoftRbg0Sample *samples; /* Caller-owned 704 * 512 entries. */
+   int enabled, mode;
+   int coefficient_enabled[2];
+} VIDSoftRbg0Preview;
+
+int VIDSoftRenderLayerPreviewsWithRbg0(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT],
+   int *width, int *height, u32 *distorted_sprite_count, VIDSoftRbg0Preview *rotation);
+
 void VIDSoftSetBilinear(int b); 
 
 void VIDSoftSetNumPriorityThreads(int num);

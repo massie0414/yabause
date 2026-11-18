@@ -24,6 +24,8 @@ extern u8 sprite_window_mask[704 * 512];
 static int failures;
 static u32 images[VIDSOFT_LAYER_PREVIEW_COUNT][704 * 512 + 1];
 static u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT] = { images[0], images[1], images[2], images[3], images[4], images[5], images[6] };
+static VIDSoftRbg0Sample samples[704 * 512 + 1];
+static VIDSoftRbg0Preview rotation = { samples };
 
 static void check(int condition, const char *message)
 {
@@ -55,7 +57,7 @@ static void capture_and_check(int software)
    Vdp1External.manualerase = 1;
    TitanGetResolution(&titan_w, &titan_h);
    for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++) images[i][704 * 512] = 0x12345678;
-   check(VIDSoftRenderLayerPreviews(layers, &width, &height, &sprite_count) == 0, "capture succeeds");
+   check(VIDSoftRenderLayerPreviewsWithRbg0(layers, &width, &height, &sprite_count, &rotation) == 0, "capture succeeds with coordinate tracing");
    check(sprite_count == 0, "normal sprites do not count as distorted sprites");
    check(width == 320 && height == 224, "native preview dimensions");
    for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++)
@@ -100,6 +102,13 @@ static void check_distorted_sprites(void)
    check(VIDSoftRenderLayerPreviews(layers, &w, &h, &sprite_count) == 0, "single distorted sprite capture");
    check(sprite_count == 1, "one distorted sprite draw counts as one");
    check(images[0][20 * w + 20] == 0xFFF800F8, "count accompanies the rendered distorted sprite");
+   sprite_count = 99;
+   check(VIDSoftRenderLayerPreviewsWithRbg0(layers, &w, &h, &sprite_count, &rotation) == 0,
+      "capture distorted sprites and RBG0 coordinates together");
+   check(sprite_count == 1 && images[0][20 * w + 20] == 0xFFF800F8,
+      "coordinate tracing preserves distorted sprite count and image");
+   check(samples[30 * w + 20].parameter == 1 && samples[30 * w + 20].x == 20
+      && samples[30 * w + 20].y == 30, "sprite counting preserves RBG0 coordinates");
    T1WriteWord(Vdp1Ram, 0, 3);
    check(VIDSoftRenderLayerPreviews(layers, &w, &h, &sprite_count) == 0 && sprite_count == 1,
       "type 3 distorted sprite counts once and capture resets the count");
@@ -135,6 +144,120 @@ static void check_distorted_sprites(void)
    check(VIDSoftRenderLayerPreviews(NULL, &w, &h, &sprite_count) == -1 && sprite_count == 0,
       "unavailable capture clears stale counts");
    setup_layer_scene();
+}
+
+static void capture_rotation(void)
+{
+   int w, h, i;
+   for (i = 0; i < 270; i++) Vdp2Lines[i] = *Vdp2Regs;
+   samples[704 * 512].parameter = 99;
+   check(VIDSoftRenderLayerPreviewsWithRbg0(layers, &w, &h, NULL, &rotation) == 0, "rotation capture");
+   check(samples[704 * 512].parameter == 99, "coordinate buffer bounds");
+}
+
+static void check_sample(int x, int y, int width, int sx, int sy, int parameter, s32 kx, s32 ky)
+{
+   const VIDSoftRbg0Sample *s = &samples[y * width + x];
+   if (s->x != sx || s->y != sy || s->parameter != parameter || s->kx != kx || s->ky != ky)
+   {
+      fprintf(stderr, "FAIL: sample (%d,%d): source (%d,%d), parameter %d, k (%x,%x); expected (%d,%d), %d, (%x,%x)\n",
+         x, y, s->x, s->y, s->parameter, s->kx, s->ky, sx, sy, parameter, kx, ky);
+      failures++;
+   }
+}
+
+static void check_rotation(void)
+{
+   int i;
+   setup_layer_scene();
+   capture_rotation();
+   check_sample(20, 30, 320, 20, 30, 1, 0x10000, 0x10000);
+   check(samples[0].parameter == 1 && images[5][0] == 0, "transparent texel still has geometry");
+   check(rotation.enabled && rotation.mode == 0 && !rotation.coefficient_enabled[0], "rotation metadata");
+
+   T1WriteLong(Vdp2Ram, 0x70000, (u32)(-32 * 65536));
+   T1WriteLong(Vdp2Ram, 0x7004C, 0x20000);
+   capture_rotation();
+   check_sample(20, 30, 320, -24, 30, 1, 0x20000, 0x10000);
+   check(samples[30 * 320 + 20].mapx == 2024, "negative source wraps into map before tile addressing");
+
+   setup_layer_scene();
+   T1WriteLong(Vdp2Ram, 0x7001C, 0); /* 90-degree rotation: x = -screen y, y = screen x */
+   T1WriteLong(Vdp2Ram, 0x70020, 0xFFFF0000);
+   T1WriteLong(Vdp2Ram, 0x70028, 0x10000);
+   T1WriteLong(Vdp2Ram, 0x7002C, 0);
+   capture_rotation();
+   check_sample(20, 30, 320, -30, 20, 1, 0x10000, 0x10000);
+
+   setup_layer_scene();
+   Vdp2Regs->KTCTL = 1;
+   Vdp2Regs->KTAOF = 1;
+   T1WriteLong(Vdp2Ram, 0x7005C, 0x10000);
+   for (i = 0; i < 512; i++) T1WriteLong(Vdp2Ram, 0x40000 + i * 4, i < 160 ? 0x8000 : 0x20000);
+   capture_rotation();
+   check_sample(20, 30, 320, 10, 15, 1, 0x8000, 0x8000);
+   check_sample(180, 30, 320, 360, 60, 1, 0x20000, 0x20000);
+   check(rotation.coefficient_enabled[0], "coefficient metadata");
+   T1WriteLong(Vdp2Ram, 0x70058, 0x10000);
+   T1WriteLong(Vdp2Ram, 0x7005C, 0);
+   capture_rotation();
+   check_sample(20, 180, 320, 40, 360, 1, 0x20000, 0x20000);
+
+   /* B has a different horizontal offset; mode 2's color source remains A
+    * but its image coordinates must be labeled B. */
+   memcpy(Vdp2Ram + 0x70080, Vdp2Ram + 0x70000, 0x80);
+   T1WriteLong(Vdp2Ram, 0x70080, 100 << 16);
+   Vdp2Regs->MPABRB = Vdp2Regs->MPCDRB = Vdp2Regs->MPEFRB = Vdp2Regs->MPGHRB = 0x0505;
+   Vdp2Regs->MPIJRB = Vdp2Regs->MPKLRB = Vdp2Regs->MPMNRB = Vdp2Regs->MPOPRB = 0x0505;
+   T1WriteLong(Vdp2Ram, 0x70058, 0);
+   T1WriteLong(Vdp2Ram, 0x7005C, 0x10000);
+   for (i = 0; i < 512; i++) T1WriteLong(Vdp2Ram, 0x40000 + i * 4, i < 160 ? 0x10000 : 0x80010000);
+   Vdp2Regs->RPMD = 2;
+   capture_rotation();
+   check_sample(20, 30, 320, 20, 30, 1, 0x10000, 0x10000);
+   check_sample(180, 30, 320, 280, 30, 2, 0x10000, 0x10000);
+   Vdp2Regs->RPMD = 0;
+   capture_rotation();
+   check(samples[30 * 320 + 180].parameter == 0, "invalid coefficient clears previous sample");
+
+   for (i = 0; i < 512; i++) T1WriteLong(Vdp2Ram, 0x40000 + i * 4, 0x10000);
+   Vdp2Regs->RPMD = 3;
+   Vdp2Regs->WCTLD = 3;
+   Vdp2Regs->WPSX0 = 0; Vdp2Regs->WPEX0 = 319;
+   Vdp2Regs->WPSY0 = 0; Vdp2Regs->WPEY0 = 223;
+   capture_rotation();
+   check_sample(20, 30, 320, 20, 30, 1, 0x10000, 0x10000);
+   check_sample(180, 30, 320, 280, 30, 2, 0x10000, 0x10000);
+   Vdp2Regs->RPMD = 1;
+   capture_rotation();
+   check_sample(20, 30, 320, 120, 30, 2, 0x10000, 0x10000);
+
+   Vdp2Regs->RPMD = 0;
+   Vdp2Regs->WCTLC = 3;
+   capture_rotation();
+   check(samples[30 * 320 + 180].parameter == 0, "layer window clips coordinate samples");
+   Vdp2Regs->WCTLC = 0;
+   Vdp2Regs->PLSZ = 2 << 10;
+   T1WriteLong(Vdp2Ram, 0x70000, 2040 << 16);
+   capture_rotation();
+   check(samples[30 * 320 + 20].parameter == 0, "screen-over clips coordinate samples");
+
+   setup_layer_scene();
+   Vdp2Regs->KTCTL = 3; /* 16-bit coefficient */
+   Vdp2Regs->KTAOF = 2;
+   T1WriteWord(Vdp2Ram, 0x40000, 0x200);
+   capture_rotation();
+   check_sample(20, 30, 320, 10, 15, 1, 0x8000, 0x8000);
+   Vdp2Regs->TVMD = 0x80E3;
+   capture_rotation();
+   check_sample(702, 510, 704, 175, 127, 1, 0x8000, 0x8000);
+   check_sample(703, 511, 704, 175, 127, 1, 0x8000, 0x8000);
+   Vdp2Regs->BGON = 0x20; /* RBG1 must not pollute this trace. */
+   capture_rotation();
+   check(!rotation.enabled && samples[30 * 704 + 20].parameter == 0, "disabled RBG0 clears samples even with RBG1 enabled");
+   Vdp2Regs->TVMD = 0;
+   capture_rotation();
+   check(!rotation.enabled && samples[0].parameter == 0, "display off clears geometry");
 }
 
 static void check_rbg1(pixel_t *output)
@@ -300,6 +423,7 @@ int main(void)
    check_distorted_sprites();
    check_rbg1(after);
    check_framebuffers();
+   check_rotation();
    setup_layer_scene();
    VIDSoftSetVdp1ThreadEnable(1);
    VIDSoftSetNumLayerThreads(3);
@@ -311,6 +435,7 @@ int main(void)
       check(VIDSoftGetVdp1Framebuffer(1, images[0], NULL, &w, &h, &size) == 0 &&
          images[0][20 * w + 20] == 0xFFF800F8, "live snapshot waits for VDP1 draw worker");
       check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == 0, "capture waits for active renderer workers");
+      check(VIDSoftRenderLayerPreviewsWithRbg0(layers, &w, &h, NULL, &rotation) == 0, "coordinate capture waits for active renderer workers");
    }
    VIDSoftSetVdp1ThreadEnable(0);
    VIDSoftSetNumLayerThreads(0);
