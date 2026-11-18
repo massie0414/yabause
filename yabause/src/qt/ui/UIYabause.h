@@ -34,6 +34,7 @@ class YabauseGLProxy;
 class QTextEdit;
 class QDockWidget;
 class UILayerViewer;
+class UIVdp2VramViewer;
 
 enum BARDISPLAY
 {
@@ -87,6 +88,7 @@ protected:
 	UILayerViewer* mLayerViewer;
 	UILayerViewer* mVdp1LayerViewer;
 	UILayerViewer* mRbg0TransformViewer;
+	UIVdp2VramViewer* mVdp2VramViewer;
 	QTextEdit* teLog;
 	bool mCanLog;
 	bool mInit;
