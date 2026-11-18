@@ -201,6 +201,18 @@ static INLINE void VidsoftPutLineHLine(int linescreen, s32 y, u32 color)
       TitanPutLineHLine(linescreen, y, color);
 }
 
+static INLINE void VidsoftPutRotationLinePixel(int linescreen, int x, int y, u32 color)
+{
+   if (layer_preview_output) return;
+   if (vdp2_x_hires)
+   {
+      TitanPutLinePixel(linescreen, x * 2, y, color);
+      TitanPutLinePixel(linescreen, x * 2 + 1, y, color);
+   }
+   else
+      TitanPutLinePixel(linescreen, x, y, color);
+}
+
 struct VidsoftVdp1ThreadContext
 {
    volatile int draw_finished;
@@ -1246,6 +1258,7 @@ static void FASTCALL Vdp2DrawRotationFP(vdp2draw_struct *info, vdp2rotationparam
       u32 rcoefx, rcoefy;
       u32 lineAddr, lineColor, lineInc;
       u16 lineColorAddr;
+      int useLineColor = info->linescreen != 0;
 
       fixed32 xmul2, ymul2, C2, F2;
       u32 coefx2, coefy2;
@@ -1302,12 +1315,8 @@ static void FASTCALL Vdp2DrawRotationFP(vdp2draw_struct *info, vdp2rotationparam
          }
       }
 
-      if (info->linescreen)
+      if (useLineColor)
       {
-         if ((info->rotatenum == 0) && (regs->KTCTL & 0x10))
-            info->linescreen = 2;
-         else if (regs->KTCTL & 0x1000)
-            info->linescreen = 3;
          if (regs->VRSIZE & 0x8000)
             lineAddr = (regs->LCTA.all & 0x7FFFF) << 1;
          else
@@ -1333,12 +1342,10 @@ static void FASTCALL Vdp2DrawRotationFP(vdp2draw_struct *info, vdp2rotationparam
                                   p2->coefdatasize, ram);
          }
 
-         if (info->linescreen > 1)
+         if (useLineColor)
          {
-            lineColorAddr = (T1ReadWord(ram, lineAddr) & 0x780) | p->linescreen;
-            lineColor = Vdp2ColorRamGetColor(lineColorAddr, color_ram);
+            lineColorAddr = T1ReadWord(ram, lineAddr) & 0x780;
             lineAddr += lineInc;
-            VidsoftPutLineHLine(info->linescreen, j, COLSAT2YAB32(0x3F, lineColor));
          }
 
          info->LoadLineParams(info, &sinfo, j, lines);
@@ -1350,6 +1357,8 @@ static void FASTCALL Vdp2DrawRotationFP(vdp2draw_struct *info, vdp2rotationparam
          for (i = 0; i < rbg0width; i++)
          {
             u32 color, dot;
+            vdp2rotationparameterfp_struct *lineParameter = p;
+            int lineRotatenum = info->rotatenum;
 
             if (p->deltaKAx != 0)
             {
@@ -1376,6 +1385,14 @@ static void FASTCALL Vdp2DrawRotationFP(vdp2draw_struct *info, vdp2rotationparam
             if (((! userpwindow) && p->msb) || (userpwindow && (! TestBothWindow(regs->WCTLD, rpwindow, i, j))))
             {
                if ((p2 == NULL) || (p2->coefenab && p2->msb)) continue;
+
+               /* Mode 2 uses A's coefficient line color even for B's image.
+                * Only the parameter window (mode 3) switches both. */
+               if (userpwindow)
+               {
+                  lineParameter = p2;
+                  lineRotatenum = 1 - info->rotatenum;
+               }
 
                x = GenerateRotatedXPosFP(p2, i, xmul2, ymul2, C2);
                y = GenerateRotatedYPosFP(p2, i, xmul2, ymul2, F2);
@@ -1441,6 +1458,17 @@ static void FASTCALL Vdp2DrawRotationFP(vdp2draw_struct *info, vdp2rotationparam
                continue;
             }
 
+            if (useLineColor)
+            {
+               info->linescreen = 1;
+               if (lineParameter->coefenab && lineParameter->coefdatasize == 4 &&
+                   (regs->KTCTL & (0x10 << (lineRotatenum * 8))))
+               {
+                  info->linescreen = 2 + lineRotatenum;
+                  lineColor = Vdp2ColorRamGetColor(lineColorAddr | lineParameter->linescreen, color_ram);
+                  VidsoftPutRotationLinePixel(info->linescreen, i, j, COLSAT2YAB32(0x3F, lineColor));
+               }
+            }
             Rbg0PutPixel(info, color, dot, i, j);
          }
          xmul += p->deltaXst;

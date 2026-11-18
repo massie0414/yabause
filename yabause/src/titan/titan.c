@@ -323,7 +323,12 @@ finished:
 
    if (pixel_stack[0].linescreen)
    {
-      pixel_stack[0].pixel = tt_context.blend(pixel_stack[0].pixel, tt_context.linescreen[pixel_stack[0].linescreen][y]);
+      int linescreen = pixel_stack[0].linescreen;
+      /* The ordinary line screen is indexed by display line. Coefficient
+       * line screens can rotate, so use the same pixel/field position as
+       * the rotation layer instead. */
+      int linepos = linescreen == 1 ? y : pos;
+      pixel_stack[0].pixel = tt_context.blend(pixel_stack[0].pixel, tt_context.linescreen[linescreen][linepos]);
    }
 
    if ((pixel_stack[0].shadow_type == TITAN_MSB_SHADOW) && ((pixel_stack[0].pixel & 0xFFFFFF) == 0))
@@ -389,7 +394,7 @@ int TitanInit()
       /* linescreen 0 is not initialized as it's not used... */
       for(i = 1;i < 4;i++)
       {
-         if ((tt_context.linescreen[i] = (u32 *)calloc(sizeof(u32), 512)) == NULL)
+         if ((tt_context.linescreen[i] = (u32 *)calloc(sizeof(u32), i == 1 ? 512 : 704 * 512)) == NULL)
             return -1;
       }
 
@@ -415,7 +420,7 @@ int TitanInit()
       memset(tt_context.vdp2framebuffer[i], 0, sizeof(u32) * 704 * 256);
 
    for(i = 1;i < 4;i++)
-      memset(tt_context.linescreen[i], 0, sizeof(u32) * 512);
+      memset(tt_context.linescreen[i], 0, sizeof(u32) * (i == 1 ? 512 : 704 * 512));
 
    return 0;
 }
@@ -490,10 +495,22 @@ void TitanPutLineHLine(int linescreen, s32 y, u32 color)
 {
    if (linescreen == 0) return;
 
+   if (linescreen == 1)
    {
       u32 * buffer = tt_context.linescreen[linescreen] + y;
       *buffer = color;
    }
+   else
+   {
+      int x;
+      u32 * buffer = tt_context.linescreen[linescreen] + y * tt_context.vdp2width;
+      for (x = 0; x < tt_context.vdp2width; x++) buffer[x] = color;
+   }
+}
+
+void TitanPutLinePixel(int linescreen, s32 x, s32 y, u32 color)
+{
+   tt_context.linescreen[linescreen][y * tt_context.vdp2width + x] = color;
 }
 
 void TitanPutPixel(int priority, s32 x, s32 y, u32 color, int linescreen, vdp2draw_struct* info)

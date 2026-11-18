@@ -50,6 +50,7 @@ void TitanSetBlendingMode(int blend_mode);
 void TitanPutBackHLine(s32 y, u32 color);
 
 void TitanPutLineHLine(int linescreen, s32 y, u32 color);
+void TitanPutLinePixel(int linescreen, s32 x, s32 y, u32 color);
 
 void TitanPutPixel(int priority, s32 x, s32 y, u32 color, int linescreen, vdp2draw_struct* info);
 void TitanPutHLine(int priority, s32 x, s32 y, s32 width, u32 color);
