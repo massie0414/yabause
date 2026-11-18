@@ -38,9 +38,12 @@ void VIDSoftVdp2DrawScreen(int screen);
  * NBG0 stays transparent while the game uses RBG1 mode.
  * Transparent pixels are zero; width/height describe the packed image.
  * The current VDP1 command list is replayed into an empty scratch framebuffer.
+ * If non-NULL, distorted_sprite_count receives one per executed distorted sprite
+ * command (including type 3), excluding skipped commands. It is reset per capture.
  * Returns 0 on success, -1 if unavailable. Does not change display toggles.
  */
-int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *width, int *height);
+int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *width, int *height,
+   u32 *distorted_sprite_count);
 
 void VIDSoftSetBilinear(int b); 
 

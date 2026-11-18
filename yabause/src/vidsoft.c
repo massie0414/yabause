@@ -4162,15 +4162,18 @@ void VIDSoftVdp2SetResolution(u16 TVMD)
    TitanSetResolution(vdp2width, vdp2height);
 }
 
-int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *width, int *height)
+int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *width, int *height,
+   u32 *distorted_sprite_count)
 {
    int i;
    int saved_dimensions[10];
    int saved_vdp1_toggle, saved_vdp2_toggle;
    int saved_bad_cycle;
    u8 *scratch;
+   u32 sprite_count = 0;
    Vdp1 regs;
    VideoInterface_struct *saved_core = VIDCore;
+   if (distorted_sprite_count) *distorted_sprite_count = 0;
    if (!layers || !width || !height || !Vdp1Regs || !Vdp2Regs ||
       !Vdp1Ram || !Vdp2Ram || !Vdp2ColorRam || layer_preview_output)
       return -1;
@@ -4223,7 +4226,7 @@ int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *wi
       regs.addr = 0;
       VidsoftVdp1SetDimensions(&regs);
       VIDCore = &VIDSoft;
-      Vdp1DrawCommands(Vdp1Ram, &regs, scratch);
+      sprite_count = Vdp1DrawCommands(Vdp1Ram, &regs, scratch);
       VIDCore = saved_core;
       layer_preview_output = layers[0];
       VidsoftDrawSprite(Vdp2Regs, sprite_window_mask, scratch,
@@ -4261,6 +4264,7 @@ int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *wi
    vdp2_x_hires = saved_dimensions[8];
    vdp2_interlace = saved_dimensions[9];
    free(scratch);
+   if (distorted_sprite_count) *distorted_sprite_count = sprite_count;
    return 0;
 }
 

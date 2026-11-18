@@ -182,7 +182,7 @@ int main(void)
       u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT];
       int width = 0, height = 0;
       for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++) layers[i] = calloc(704 * 512, sizeof(u32));
-      if (VIDSoftRenderLayerPreviews(layers, &width, &height) != 0 || width != 320 || height != 224)
+      if (VIDSoftRenderLayerPreviews(layers, &width, &height, NULL) != 0 || width != 320 || height != 224)
       {
          fprintf(stderr, "FAIL: coefficient layer preview capture\n");
          failures++;

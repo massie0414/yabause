@@ -120,7 +120,8 @@ void FASTCALL Sh2Vdp1FrameBufferWriteByte(SH2_struct *sh, u32, u8);
 void FASTCALL Sh2Vdp1FrameBufferWriteWord(SH2_struct *sh, u32, u16);
 void FASTCALL Sh2Vdp1FrameBufferWriteLong(SH2_struct *sh, u32, u32);
 
-void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer);
+/* Returns the number of distorted sprite draws executed in this command list. */
+u32 Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer);
 void Vdp1FakeDrawCommands(u8 * ram, Vdp1 * regs);
 
 extern Vdp1 * Vdp1Regs;
