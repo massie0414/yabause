@@ -213,6 +213,7 @@
     <addaction name="mViewLayer"/>
     <addaction name="aViewLayerViewer"/>
     <addaction name="aViewVdp1LayerViewer"/>
+    <addaction name="aViewRbg0TransformViewer"/>
     <addaction name="aViewFullscreen"/>
     <addaction name="aViewLog"/>
    </widget>
@@ -649,6 +650,14 @@
    </property>
    <property name="text">
     <string>VDP&amp;2 Layer Viewer</string>
+   </property>
+  </action>
+  <action name="aViewRbg0TransformViewer">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>RBG0 Transform Viewer</string>
    </property>
   </action>
   <action name="aViewVdp1LayerViewer">

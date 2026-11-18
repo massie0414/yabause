@@ -172,6 +172,28 @@ int bad_cycle_setting[6] = { 0 };
 /* Only active during a synchronous debugger snapshot, after render workers
  * have finished. Bypass Titan entirely so the live compositor is untouched. */
 static u32 *layer_preview_output = NULL;
+static VIDSoftRbg0Preview *rbg0_preview = NULL;
+
+static INLINE void VidsoftRecordRbg0(vdp2draw_struct *info, int i, int j,
+   int x, int y, int mapx, int mapy, s32 kx, s32 ky, int parameter, int xscale)
+{
+   int row, col, yscale = vdp2_interlace ? 2 : 1;
+   VIDSoftRbg0Sample sample;
+   if (!rbg0_preview || info->titan_which_layer != TITAN_RBG0) return;
+   if (i < 0 || i * xscale >= vdp2width || j < 0 || j * yscale >= vdp2height) return;
+   memset(&sample, 0, sizeof(sample));
+   /* GenerateRotated* returns the unsigned high half of a 16.16 value. */
+   sample.x = (s16)x;
+   sample.y = (s16)y;
+   sample.mapx = mapx;
+   sample.mapy = mapy;
+   sample.kx = kx;
+   sample.ky = ky;
+   sample.parameter = parameter + 1;
+   for (row = 0; row < yscale; row++)
+      for (col = 0; col < xscale; col++)
+         rbg0_preview->samples[(j * yscale + row) * vdp2width + i * xscale + col] = sample;
+}
 
 static INLINE void VidsoftPutPixel(int priority, s32 x, s32 y, u32 color,
    int linescreen, vdp2draw_struct *info)
@@ -1009,6 +1031,12 @@ static void FASTCALL Vdp2DrawScroll(vdp2draw_struct *info, Vdp2* lines, Vdp2* re
          }
          y &= sinfo.ymask;
 
+         if (rbg0_preview && info->titan_which_layer == TITAN_RBG0)
+            VidsoftRecordRbg0(info, i, output_y,
+               (int)(info->x + mosaic_x[i] * info->coordincx), line_y >> 16,
+               x, y, (s32)(info->coordincx * 65536.0f),
+               (s32)(info->coordincy * 65536.0f), info->rotatenum, 1);
+
          // Fetch Pixel, if it isn't transparent, continue
          if (!info->isbitmap)
          {
@@ -1172,8 +1200,13 @@ static void FASTCALL Vdp2DrawRotationFP(vdp2draw_struct *info, vdp2rotationparam
                if (!TestBothWindow(info->wctl, clip, i, j))
                   continue;
 
-               x = GenerateRotatedXPosFP(p, i, xmul, ymul, C) & sinfo.xmask;
-               y = GenerateRotatedYPosFP(p, i, xmul, ymul, F) & sinfo.ymask;
+               x = GenerateRotatedXPosFP(p, i, xmul, ymul, C);
+               y = GenerateRotatedYPosFP(p, i, xmul, ymul, F);
+               if (rbg0_preview)
+                  VidsoftRecordRbg0(info, i, j, x, y, x & sinfo.xmask,
+                     y & sinfo.ymask, p->kx, p->ky, info->rotatenum, vdp2_x_hires ? 2 : 1);
+               x &= sinfo.xmask;
+               y &= sinfo.ymask;
 
                // Convert coordinates into graphics
                if (!info->isbitmap)
@@ -1305,6 +1338,7 @@ static void FASTCALL Vdp2DrawRotationFP(vdp2draw_struct *info, vdp2rotationparam
             u32 color, dot;
             vdp2rotationparameterfp_struct *lineParameter = p;
             int lineRotatenum = info->rotatenum;
+            int sourceX, sourceY;
 
             if (p->deltaKAx != 0)
             {
@@ -1342,6 +1376,8 @@ static void FASTCALL Vdp2DrawRotationFP(vdp2draw_struct *info, vdp2rotationparam
 
                x = GenerateRotatedXPosFP(p2, i, xmul2, ymul2, C2);
                y = GenerateRotatedYPosFP(p2, i, xmul2, ymul2, F2);
+               sourceX = x;
+               sourceY = y;
 
                switch(p2->screenover) {
                   case 0:
@@ -1360,6 +1396,10 @@ static void FASTCALL Vdp2DrawRotationFP(vdp2draw_struct *info, vdp2rotationparam
                      if ((x > 512) || (y > 512)) continue;
                }
 
+               if (rbg0_preview)
+                  VidsoftRecordRbg0(info, i, j, sourceX, sourceY, x, y,
+                     p2->kx, p2->ky, 1 - info->rotatenum, vdp2_x_hires ? 2 : 1);
+
                // Convert coordinates into graphics
                if (!info->isbitmap)
                {
@@ -1372,6 +1412,8 @@ static void FASTCALL Vdp2DrawRotationFP(vdp2draw_struct *info, vdp2rotationparam
             {
                x = GenerateRotatedXPosFP(p, i, xmul, ymul, C);
                y = GenerateRotatedYPosFP(p, i, xmul, ymul, F);
+               sourceX = x;
+               sourceY = y;
 
                switch(p->screenover) {
                   case 0:
@@ -1389,6 +1431,10 @@ static void FASTCALL Vdp2DrawRotationFP(vdp2draw_struct *info, vdp2rotationparam
                   case 3:
                      if ((x > 512) || (y > 512)) continue;
                }
+
+               if (rbg0_preview)
+                  VidsoftRecordRbg0(info, i, j, sourceX, sourceY, x, y,
+                     p->kx, p->ky, info->rotatenum, vdp2_x_hires ? 2 : 1);
 
                // Convert coordinates into graphics
                if (!info->isbitmap)
@@ -4165,6 +4211,12 @@ void VIDSoftVdp2SetResolution(u16 TVMD)
 int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *width, int *height,
    u32 *distorted_sprite_count)
 {
+   return VIDSoftRenderLayerPreviewsWithRbg0(layers, width, height, distorted_sprite_count, NULL);
+}
+
+int VIDSoftRenderLayerPreviewsWithRbg0(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT],
+   int *width, int *height, u32 *distorted_sprite_count, VIDSoftRbg0Preview *rotation)
+{
    int i;
    int saved_dimensions[10];
    int saved_vdp1_toggle, saved_vdp2_toggle;
@@ -4179,6 +4231,7 @@ int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *wi
       return -1;
    for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++)
       if (!layers[i]) return -1;
+   if (rotation && !rotation->samples) return -1;
 
    scratch = (u8 *)calloc(1, 0x40000 + sizeof(sprite_window_mask));
    if (!scratch) return -1;
@@ -4215,6 +4268,15 @@ int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *wi
    *height = vdp2height;
    for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++)
       memset(layers[i], 0, vdp2width * vdp2height * sizeof(u32));
+   if (rotation)
+   {
+      memset(rotation->samples, 0, vdp2width * vdp2height * sizeof(VIDSoftRbg0Sample));
+      rotation->enabled = (Vdp2Regs->TVMD & 0x8000) && (Vdp2Regs->BGON & 0x10);
+      rotation->mode = Vdp2Regs->RPMD & 3;
+      rotation->coefficient_enabled[0] = Vdp2Regs->KTCTL & 1;
+      rotation->coefficient_enabled[1] = (Vdp2Regs->KTCTL >> 8) & 1;
+   }
+   rbg0_preview = rotation;
 
    Vdp1External.disptoggle = 1;
    Vdp2External.disptoggle = ~0;
@@ -4249,6 +4311,7 @@ int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *wi
       }
    }
    layer_preview_output = NULL;
+   rbg0_preview = NULL;
    Vdp1External.disptoggle = saved_vdp1_toggle;
    Vdp2External.disptoggle = saved_vdp2_toggle;
    bad_cycle_setting[TITAN_NBG3] = saved_bad_cycle;

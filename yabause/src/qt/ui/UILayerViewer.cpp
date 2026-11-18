@@ -3,16 +3,19 @@
 #include "../YabauseThread.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QElapsedTimer>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHideEvent>
 #include <QImage>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
 #include <QShowEvent>
 #include <QTimer>
+#include <QtCore/qmath.h>
 
 class LayerPreviewWidget : public QWidget
 {
@@ -30,14 +33,19 @@ public:
     }
 
 protected:
+    QRect imageRect() const
+    {
+        const QSize size = mImage.size().scaled(this->size(), Qt::KeepAspectRatio);
+        return QRect(QPoint((width() - size.width()) / 2,
+            (height() - size.height()) / 2), size);
+    }
+
     void paintEvent(QPaintEvent *)
     {
         QPainter painter(this);
         painter.fillRect(rect(), QColor(24, 26, 30));
         if (mImage.isNull()) return;
-        const QSize size = mImage.size().scaled(this->size(), Qt::KeepAspectRatio);
-        const QRect target(QPoint((width() - size.width()) / 2,
-                                  (height() - size.height()) / 2), size);
+        const QRect target = imageRect();
         painter.save();
         painter.setClipRect(target);
         for (int y = target.top(); y <= target.bottom(); y += 12)
@@ -49,13 +57,153 @@ protected:
         painter.restore();
     }
 
-private:
+protected:
     QImage mImage;
+};
+
+class Rbg0TransformWidget : public LayerPreviewWidget
+{
+public:
+    Rbg0TransformWidget(QLabel *detail, QWidget *parent)
+        : LayerPreviewWidget(parent), mDetail(detail), mMode(0), mSpacing(64), mPoint(-1, -1)
+    {
+        setMouseTracking(true);
+        setMinimumSize(280, 196);
+        setAccessibleName(tr("RBG0 transformed source grid"));
+    }
+
+    void setSnapshot(const QImage &image, const QVector<VIDSoftRbg0Sample> &samples)
+    {
+        mOriginal = image;
+        mSamples = samples; // Implicit sharing keeps a frozen viewer's capture intact.
+        rebuild();
+    }
+
+    void setView(int mode, int spacing)
+    {
+        mMode = mode;
+        mSpacing = spacing;
+        rebuild();
+    }
+
+protected:
+    void mouseMoveEvent(QMouseEvent *event) { selectPoint(event->pos()); }
+    void mousePressEvent(QMouseEvent *event) { selectPoint(event->pos()); }
+
+    void paintEvent(QPaintEvent *event)
+    {
+        LayerPreviewWidget::paintEvent(event);
+        if (!validPoint()) return;
+        const QRect target = imageRect();
+        QPoint center(target.x() + (mPoint.x() + 0.5) * target.width() / mImage.width(),
+            target.y() + (mPoint.y() + 0.5) * target.height() / mImage.height());
+        QPainter painter(this);
+        painter.setClipRect(target);
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            painter.setPen(QPen(pass ? Qt::white : Qt::black, pass ? 1 : 3));
+            painter.drawLine(center + QPoint(-7, 0), center + QPoint(7, 0));
+            painter.drawLine(center + QPoint(0, -7), center + QPoint(0, 7));
+        }
+    }
+
+private:
+    bool validPoint() const
+    {
+        return !mImage.isNull() && mPoint.x() >= 0 && mPoint.x() < mImage.width()
+            && mPoint.y() >= 0 && mPoint.y() < mImage.height()
+            && mSamples.size() >= mImage.width() * mImage.height();
+    }
+
+    void selectPoint(const QPoint &point)
+    {
+        if (mImage.isNull()) return;
+        const QRect target = imageRect();
+        if (!target.contains(point)) return;
+        mPoint = QPoint((point.x() - target.x()) * mImage.width() / target.width(),
+            (point.y() - target.y()) * mImage.height() / target.height());
+        updateDetail();
+        update();
+    }
+
+    int cell(int value) const { return int(qFloor(double(value) / mSpacing)); }
+
+    bool crossesGrid(const VIDSoftRbg0Sample &a, const VIDSoftRbg0Sample &b) const
+    {
+        return a.parameter == b.parameter &&
+            (cell(a.x) != cell(b.x) || cell(a.y) != cell(b.y));
+    }
+
+    void rebuild()
+    {
+        if (mOriginal.isNull() || mSamples.size() < mOriginal.width() * mOriginal.height())
+        {
+            setImage(QImage());
+            updateDetail();
+            return;
+        }
+        QImage image(mOriginal.size(), QImage::Format_ARGB32);
+        const int width = image.width(), height = image.height();
+        for (int y = 0; y < height; ++y)
+        {
+            QRgb *row = reinterpret_cast<QRgb *>(image.scanLine(y));
+            const QRgb *original = reinterpret_cast<const QRgb *>(mOriginal.constScanLine(y));
+            for (int x = 0; x < width; ++x)
+            {
+                const int index = y * width + x;
+                const VIDSoftRbg0Sample &sample = mSamples[index];
+                row[x] = mMode == 0 ? original[x] : 0;
+                if (!sample.parameter) continue;
+                const QColor color = sample.parameter == 1 ? QColor(64, 218, 242) : QColor(255, 174, 74);
+                if (mMode == 2) row[x] = color.rgb();
+                else
+                {
+                    const bool edge = (x > 0 && crossesGrid(sample, mSamples[index - 1]))
+                        || (y > 0 && crossesGrid(sample, mSamples[index - width]))
+                        || sample.x % mSpacing == 0 || sample.y % mSpacing == 0;
+                    if (mMode == 1)
+                        row[x] = color.darker(((cell(sample.x) + cell(sample.y)) & 1) ? 350 : 220).rgb();
+                    if (edge) row[x] = color.rgb();
+                }
+            }
+        }
+        setImage(image);
+        updateDetail();
+    }
+
+    void updateDetail()
+    {
+        if (!validPoint())
+        {
+            mDetail->setText(tr("Point at the image to inspect screen and source coordinates."));
+            return;
+        }
+        const int index = mPoint.y() * mImage.width() + mPoint.x();
+        const VIDSoftRbg0Sample &sample = mSamples[index];
+        const QString screen = tr("Screen (%1, %2)").arg(mPoint.x()).arg(mPoint.y());
+        if (!sample.parameter)
+        {
+            mDetail->setText(screen + tr(" | No source sample (disabled or clipped)."));
+            return;
+        }
+        mDetail->setText(tr("%1 -> Source (%2, %3) -> Map (%4, %5) | Parameter %6\nkx = %7, ky = %8 | %9")
+            .arg(screen).arg(sample.x).arg(sample.y).arg(sample.mapx).arg(sample.mapy)
+            .arg(sample.parameter == 1 ? "A" : "B")
+            .arg(sample.kx / 65536.0, 0, 'f', 4).arg(sample.ky / 65536.0, 0, 'f', 4)
+            .arg(qAlpha(mOriginal.pixel(mPoint)) ? tr("Visible layer pixel") : tr("Transparent / priority 0")));
+    }
+
+    QLabel *mDetail;
+    QImage mOriginal;
+    QVector<VIDSoftRbg0Sample> mSamples;
+    int mMode, mSpacing;
+    QPoint mPoint;
 };
 
 UILayerPreviewSource::UILayerPreviewSource(YabauseThread *emulation, QObject *parent)
     : QObject(parent), mEmulation(emulation), mDistortedSpriteCount(0), mTimer(new QTimer(this))
 {
+    memset(&mRotation, 0, sizeof(mRotation));
     mTimer->setSingleShot(true);
     connect(mTimer, SIGNAL(timeout()), this, SLOT(refreshAutomatic()));
 }
@@ -85,6 +233,12 @@ int UILayerPreviewSource::capture()
     int width = 0, height = 0;
     mDistortedSpriteCount = 0;
     bool available = mEmulation->init() == 0;
+    bool rotationVisible = false;
+    foreach (const QPointer<UILayerViewer> &viewer, mViewers)
+        if (viewer && viewer->isVisible() && viewer->mKind == UILayerViewer::RBG0Transform)
+            rotationVisible = true;
+    memset(&mRotation, 0, sizeof(mRotation));
+    if (!rotationVisible || !available) mRotationSamples.clear();
     if (available)
     {
         u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT];
@@ -95,7 +249,13 @@ int UILayerPreviewSource::capture()
         }
         // Emulation and this timer run on the GUI thread. Capture between
         // frames, not from swapBuffers while a renderer is still on the stack.
-        available = VIDSoftRenderLayerPreviews(layers, &width, &height, &mDistortedSpriteCount) == 0;
+        if (rotationVisible)
+        {
+            mRotationSamples.resize(704 * 512);
+            mRotation.samples = mRotationSamples.data();
+        }
+        available = VIDSoftRenderLayerPreviewsWithRbg0(layers, &width, &height,
+            &mDistortedSpriteCount, rotationVisible ? &mRotation : NULL) == 0;
     }
     for (int i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; ++i)
         mImages[i] = available
@@ -110,7 +270,7 @@ void UILayerPreviewSource::refreshAutomatic()
     if (!needsRefresh()) return;
     const int delay = capture();
     foreach (const QPointer<UILayerViewer> &viewer, mViewers)
-        if (viewer && viewer->autoRefresh()) viewer->displayImages(mImages, mDistortedSpriteCount);
+        if (viewer && viewer->autoRefresh()) viewer->displayImages(mImages, mDistortedSpriteCount, mRotation, mRotationSamples);
     updateTimer(delay);
 }
 
@@ -118,41 +278,81 @@ void UILayerPreviewSource::refreshViewer(UILayerViewer *viewer)
 {
     mTimer->stop();
     const int delay = capture();
-    viewer->displayImages(mImages, mDistortedSpriteCount);
+    viewer->displayImages(mImages, mDistortedSpriteCount, mRotation, mRotationSamples);
     updateTimer(delay);
 }
 
 UILayerViewer::UILayerViewer(UILayerPreviewSource *source, Kind kind, QWidget *parent)
-    : QDialog(parent, Qt::Window), mSource(source), mKind(kind), mSpriteCount(NULL)
+    : QDialog(parent, Qt::Window), mSource(source), mKind(kind), mSpriteCount(NULL), mTransform(NULL),
+      mTransformMode(NULL), mGridSpacing(NULL)
 {
     const bool vdp1 = mKind == VDP1;
-    setObjectName(vdp1 ? "vdp1LayerViewer" : "layerViewer");
-    setWindowTitle(vdp1 ? tr("VDP1 Layer Viewer") : tr("VDP2 Layer Viewer"));
+    const bool rotation = mKind == RBG0Transform;
+    setObjectName(rotation ? "rbg0TransformViewer" : vdp1 ? "vdp1LayerViewer" : "layerViewer");
+    setWindowTitle(rotation ? tr("RBG0 Transform Viewer") : vdp1 ? tr("VDP1 Layer Viewer") : tr("VDP2 Layer Viewer"));
     setModal(false);
-    resize(vdp1 ? QSize(520, 450) : QSize(960, 620));
+    resize(rotation ? QSize(820, 680) : vdp1 ? QSize(520, 450) : QSize(960, 620));
 
     QVBoxLayout *layout = new QVBoxLayout(this);
-    QLabel *description = new QLabel(tr("Each layer is shown independently of View > Layer. Checkerboard = transparent."), this);
+    QLabel *description = new QLabel(rotation
+        ? tr("Source-coordinate grid after RBG0 transformation. A = cyan, B = orange. Independent of View > Layer.")
+        : tr("Each layer is shown independently of View > Layer. Checkerboard = transparent."), this);
     description->setWordWrap(true);
     layout->addWidget(description);
 
-    QGridLayout *grid = new QGridLayout;
-    const char *names[6] = { "NBG0", "NBG1", "NBG2", "NBG3", "RBG0", "RBG1" };
-    const int count = vdp1 ? 1 : 6;
-    for (int i = 0; i < count; ++i)
+    if (rotation)
     {
-        const QString name = QString::fromLatin1(vdp1 ? "VDP1" : names[i]);
-        QGroupBox *group = new QGroupBox(name, this);
-        group->setObjectName(QString::fromLatin1("layerGroup%1").arg(i));
-        QVBoxLayout *groupLayout = new QVBoxLayout(group);
-        mViews[i] = new LayerPreviewWidget(group);
-        mViews[i]->setObjectName(QString::fromLatin1("preview%1").arg(name));
-        groupLayout->addWidget(mViews[i]);
-        grid->addWidget(group, i / 3, i % 3);
+        QHBoxLayout *options = new QHBoxLayout;
+        QLabel *modeLabel = new QLabel(tr("Display:"), this);
+        mTransformMode = new QComboBox(this);
+        mTransformMode->setObjectName("rbg0DisplayMode");
+        mTransformMode->addItems(QStringList() << tr("Image + grid") << tr("Transformed grid") << tr("Parameter A/B"));
+        modeLabel->setBuddy(mTransformMode);
+        options->addWidget(modeLabel);
+        options->addWidget(mTransformMode);
+        QLabel *spacingLabel = new QLabel(tr("Source grid:"), this);
+        mGridSpacing = new QComboBox(this);
+        mGridSpacing->setObjectName("rbg0GridSpacing");
+        const int spacings[] = { 16, 32, 64, 128, 256 };
+        for (int i = 0; i < 5; ++i) mGridSpacing->addItem(tr("%1 px").arg(spacings[i]), spacings[i]);
+        mGridSpacing->setCurrentIndex(2);
+        spacingLabel->setBuddy(mGridSpacing);
+        options->addWidget(spacingLabel);
+        options->addWidget(mGridSpacing);
+        options->addStretch();
+        layout->addLayout(options);
+        QLabel *detail = new QLabel(this);
+        detail->setObjectName("rbg0PointDetail");
+        detail->setWordWrap(true);
+        detail->setMinimumHeight(fontMetrics().height() * 3);
+        detail->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        mTransform = new Rbg0TransformWidget(detail, this);
+        mTransform->setObjectName("previewRBG0Transform");
+        layout->addWidget(mTransform, 1);
+        layout->addWidget(detail);
+        connect(mTransformMode, SIGNAL(currentIndexChanged(int)), this, SLOT(updateTransformView()));
+        connect(mGridSpacing, SIGNAL(currentIndexChanged(int)), this, SLOT(updateTransformView()));
     }
-    for (int i = 0; i < (vdp1 ? 1 : 3); ++i) grid->setColumnStretch(i, 1);
-    for (int i = 0; i < (vdp1 ? 1 : 2); ++i) grid->setRowStretch(i, 1);
-    layout->addLayout(grid, 1);
+    else
+    {
+        QGridLayout *grid = new QGridLayout;
+        const char *names[6] = { "NBG0", "NBG1", "NBG2", "NBG3", "RBG0", "RBG1" };
+        const int count = vdp1 ? 1 : 6;
+        for (int i = 0; i < count; ++i)
+        {
+            const QString name = QString::fromLatin1(vdp1 ? "VDP1" : names[i]);
+            QGroupBox *group = new QGroupBox(name, this);
+            group->setObjectName(QString::fromLatin1("layerGroup%1").arg(i));
+            QVBoxLayout *groupLayout = new QVBoxLayout(group);
+            mViews[i] = new LayerPreviewWidget(group);
+            mViews[i]->setObjectName(QString::fromLatin1("preview%1").arg(name));
+            groupLayout->addWidget(mViews[i]);
+            grid->addWidget(group, i / 3, i % 3);
+        }
+        for (int i = 0; i < (vdp1 ? 1 : 3); ++i) grid->setColumnStretch(i, 1);
+        for (int i = 0; i < (vdp1 ? 1 : 2); ++i) grid->setRowStretch(i, 1);
+        layout->addLayout(grid, 1);
+    }
 
     if (vdp1)
     {
@@ -162,7 +362,9 @@ UILayerViewer::UILayerViewer(UILayerPreviewSource *source, Kind kind, QWidget *p
         layout->addWidget(mSpriteCount);
     }
 
-    QLabel *note = new QLabel(vdp1
+    QLabel *note = new QLabel(rotation
+        ? tr("Software sampling before blending. Grid includes transparent texels. Source = before wrapping; Map = before tile lookup. kx/ky are source scale factors.")
+        : vdp1
         ? tr("Software preview of the current VDP1 command list.")
         : tr("Software preview before layer blending. Unused layers remain transparent."), this);
     note->setWordWrap(true);
@@ -176,6 +378,7 @@ UILayerViewer::UILayerViewer(UILayerPreviewSource *source, Kind kind, QWidget *p
     controls->addWidget(refreshButton);
     mStatus = new QLabel(this);
     mStatus->setObjectName("layerViewerStatus");
+    mStatus->setWordWrap(true);
     controls->addWidget(mStatus, 1);
     layout->addLayout(controls);
 
@@ -208,8 +411,28 @@ bool UILayerViewer::autoRefresh() const
     return isVisible() && mAutoRefresh->isChecked();
 }
 
-void UILayerViewer::displayImages(const QImage *images, u32 distortedSpriteCount)
+void UILayerViewer::updateTransformView()
 {
+    if (mTransform)
+        mTransform->setView(mTransformMode->currentIndex(), mGridSpacing->itemData(mGridSpacing->currentIndex()).toInt());
+}
+
+void UILayerViewer::displayImages(const QImage *images, u32 distortedSpriteCount, const VIDSoftRbg0Preview &rotation,
+    const QVector<VIDSoftRbg0Sample> &samples)
+{
+    if (mKind == RBG0Transform)
+    {
+        mTransform->setSnapshot(images[5], samples);
+        const char *modes[] = { "A", "B", "A/B coefficient", "A/B window" };
+        mStatus->setText(images[5].isNull() ? tr("Start emulation to view RBG0.")
+            : !rotation.enabled ? tr("RBG0 is disabled by the game.")
+            : tr("%1 x %2 | RPMD %3 (%4) | Coefficients A: %5, B: %6")
+                .arg(images[5].width()).arg(images[5].height()).arg(rotation.mode)
+                .arg(QString::fromLatin1(modes[rotation.mode & 3]))
+                .arg(rotation.coefficient_enabled[0] ? tr("on") : tr("off"))
+                .arg(rotation.coefficient_enabled[1] ? tr("on") : tr("off")));
+        return;
+    }
     const int count = mKind == VDP1 ? 1 : 6;
     const int first = mKind == VDP1 ? 0 : 1;
     for (int i = 0; i < count; ++i) mViews[i]->setImage(images[first + i]);
