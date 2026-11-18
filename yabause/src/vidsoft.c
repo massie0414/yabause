@@ -871,7 +871,7 @@ static void FASTCALL Vdp2DrawScroll(vdp2draw_struct *info, Vdp2* lines, Vdp2* re
    u32 linewnd0addr, linewnd1addr;
    u32 line_window_base[2] = { 0 };
    screeninfo_struct sinfo;
-   int scrolly;
+   u32 scrolly;
    int *mosaic_y, *mosaic_x;
    clipping_struct colorcalcwindow[2];
    int start_line = 0, line_increment = 0;
@@ -881,11 +881,15 @@ static void FASTCALL Vdp2DrawScroll(vdp2draw_struct *info, Vdp2* lines, Vdp2* re
    u32 linescrollx_table[512] = { 0 };
    u32 linescrolly_table[512] = { 0 };
    float lineszoom_table[512] = { 0 };
-   int num_vertical_cell_scroll_enabled = 0;
+   int cell_scroll_stride = 0, cell_scroll_offset = 0;
 
    SetupScreenVars(info, &sinfo, info->PlaneAddr, regs);
 
-   scrolly = info->y;
+   scrolly = (u32)info->y << 16;
+   if (info->titan_which_layer == TITAN_NBG0)
+      scrolly |= regs->SCYDN0 & 0xFF00;
+   else if (info->titan_which_layer == TITAN_NBG1)
+      scrolly |= regs->SCYDN1 & 0xFF00;
 
    clip[0].xstart = clip[0].ystart = clip[0].xend = clip[0].yend = 0;
    clip[1].xstart = clip[1].ystart = clip[1].xend = clip[1].yend = 0;
@@ -915,79 +919,52 @@ static void FASTCALL Vdp2DrawScroll(vdp2draw_struct *info, Vdp2* lines, Vdp2* re
 
    Vdp2GetInterlaceInfo(&start_line, &line_increment);
 
-   if (regs->SCRCTL & 1)
-      num_vertical_cell_scroll_enabled++;
-   if (regs->SCRCTL & 0x100)
-      num_vertical_cell_scroll_enabled++;
-
-   //pre-generate line scroll tables
-   for (j = start_line; j < vdp2height; j++)
+   if (info->isverticalscroll && !vdp2_x_hires &&
+       !(regs->MZCTL & (info->titan_which_layer == TITAN_NBG0 ? 1 : 2)))
    {
-      if (info->islinescroll)
-      {
-         //line scroll interval bit
-         int need_increment = ((j != 0) && (((j + 1) % info->lineinc) == 0));
+      cell_scroll_stride = info->verticalscrollinc / 4;
+      if (cell_scroll_stride == 2 && info->titan_which_layer == TITAN_NBG1)
+         cell_scroll_offset = 1;
+   }
 
-         //horizontal line scroll
+   // Each table entry contains one longword per enabled function. Select
+   // the entry by display line so intervals and interlaced fields agree.
+   if (info->islinescroll)
+   {
+      u32 entry_size = 4 * (((info->islinescroll & 1) != 0) +
+                           ((info->islinescroll & 2) != 0) +
+                           ((info->islinescroll & 4) != 0));
+      for (j = 0; j < vdp2height; j++)
+      {
+         u32 table = info->linescrolltbl + (j / info->lineinc) * entry_size;
          if (info->islinescroll & 0x1)
          {
-            linescrollx_table[j] = (T1ReadLong(ram, info->linescrolltbl) >> 16) & 0x7FF;
-            if (need_increment)
-               info->linescrolltbl += 4;
+            linescrollx_table[j] = (T1ReadLong(ram, table & 0x7FFFF) >> 16) & 0x7FF;
+            table += 4;
          }
-
-         //vertical line scroll
          if (info->islinescroll & 0x2)
          {
-            linescrolly_table[j] = ((T1ReadWord(ram, info->linescrolltbl) & 0x7FF)) + scrolly;
-            if (need_increment)
-               info->linescrolltbl += 4;
-            y = info->y;
+            linescrolly_table[j] = (T1ReadLong(ram, table & 0x7FFFF) & 0x7FFFF00) + scrolly +
+               (u32)(info->coordincy * 65536.0f) * (j % info->lineinc);
+            table += 4;
          }
-
-         //line zoom
          if (info->islinescroll & 0x4)
-         {
-            lineszoom_table[j] = (T1ReadLong(ram, info->linescrolltbl) & 0x7FF00) / (float)65536.0;
-            if (need_increment)
-               info->linescrolltbl += 4;
-         }
+            lineszoom_table[j] = (T1ReadLong(ram, table & 0x7FFFF) & 0x7FF00) / (float)65536.0;
       }
    }
 
    for (j = start_line; j < vdp2height; j += line_increment)
    {
-      int Y;
+      u32 line_y = scrolly + (u32)(info->coordincy * 65536.0f) * mosaic_y[j];
       int linescrollx = 0;
-      // precalculate the coordinate for the line(it's faster) and do line
-      // scroll
-      if (info->islinescroll)
-      {
-         //horizontal line scroll
-         if (info->islinescroll & 0x1)
-         {
-            linescrollx = linescrollx_table[j];
-         }
+      const u32 *cell_values = cell_data[vdp2_interlace ? j / 2 : j].data;
 
-         //vertical line scroll
-         if (info->islinescroll & 0x2)
-         {
-            info->y = linescrolly_table[j];
-            y = info->y;
-         }
-         else
-            //y = info->y+((int)(info->coordincy *(float)(info->mosaicymask > 1 ? (j / info->mosaicymask * info->mosaicymask) : j)));
-			y = info->y + info->coordincy*mosaic_y[j];
-
-         //line zoom
-         if (info->islinescroll & 0x4)
-         {
-            info->coordincx = lineszoom_table[j];
-         }
-      }
-      else
-         //y = info->y+((int)(info->coordincy *(float)(info->mosaicymask > 1 ? (j / info->mosaicymask * info->mosaicymask) : j)));
-		 y = info->y + info->coordincy*mosaic_y[j];
+      if (info->islinescroll & 0x1)
+         linescrollx = linescrollx_table[j];
+      if (info->islinescroll & 0x2)
+         line_y = linescrolly_table[j];
+      if (info->islinescroll & 0x4)
+         info->coordincx = lineszoom_table[j];
 
       if (vdp2_interlace)
       {
@@ -997,40 +974,6 @@ static void FASTCALL Vdp2DrawScroll(vdp2draw_struct *info, Vdp2* lines, Vdp2* re
 
       // if line window is enabled, adjust clipping values
       ReadLineWindowClip(info->islinewindow, clip, &linewnd0addr, &linewnd1addr, ram, regs);
-      y &= sinfo.ymask;
-
-      if (info->isverticalscroll && (!vdp2_x_hires))//seems to be ignored in hi res
-      {
-         // this is *wrong*, vertical scroll use a different value per cell
-         // info->verticalscrolltbl should be incremented by info->verticalscrollinc
-         // each time there's a cell change and reseted at the end of the line...
-         // or something like that :)
-         u32 scroll_value = 0;
-         int y_value = 0;
-         
-         if (vdp2_interlace)
-            y_value = j / 2;
-         else
-            y_value = j;
-
-         if (num_vertical_cell_scroll_enabled == 1)
-         {
-            scroll_value = cell_data[y_value].data[0] >> 16;
-         }
-         else
-         {
-            if (info->titan_which_layer == TITAN_NBG0)
-               scroll_value = cell_data[y_value].data[0] >> 16;//reload cell data per line for sonic 2, 2 player mode
-            else if (info->titan_which_layer == TITAN_NBG1)
-               scroll_value = cell_data[y_value].data[1] >> 16;
-         }
-
-         y += scroll_value;
-         y &= 0x1FF;
-      }
-
-      Y=y;
-
       if (vdp2_interlace)
          info->LoadLineParams(info, &sinfo, j / 2, lines);
       else
@@ -1053,20 +996,23 @@ static void FASTCALL Vdp2DrawScroll(vdp2draw_struct *info, Vdp2* lines, Vdp2* re
             continue;
          }
 
-         //x = info->x+((int)(info->coordincx*(float)((info->mosaicxmask > 1) ? (i / info->mosaicxmask * info->mosaicxmask) : i)));
-		 x = info->x + mosaic_x[i]*info->coordincx;
-         x &= sinfo.xmask;
-		 
-         if (linescrollx) {
-            x += linescrollx;
-            x &= 0x3FF;
+         x = info->x + mosaic_x[i] * info->coordincx;
+         x = (x + linescrollx) & sinfo.xmask;
+
+         // Add the cell and line scroll fractions before selecting a bitmap
+         // row. Grandia uses the carry to display tightly packed movie data.
+         y = line_y >> 16;
+         if (cell_scroll_stride)
+         {
+            u32 cell_y = cell_values[(i / 8) * cell_scroll_stride + cell_scroll_offset];
+            y = (line_y + (cell_y & 0x7FFFF00)) >> 16;
          }
+         y &= sinfo.ymask;
 
          // Fetch Pixel, if it isn't transparent, continue
          if (!info->isbitmap)
          {
             // Tile
-            y=Y;
             Vdp2MapCalcXY(info, &x, &y, &sinfo, regs, ram, bad_cycle);
          }
 
