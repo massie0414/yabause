@@ -29,6 +29,7 @@
 #include "UIDebugVDP1.h"
 #include "UIDebugVDP2.h"
 #include "UILayerViewer.h"
+#include "UIVdp1FramebufferViewer.h"
 #include "UIDebugM68K.h"
 #include "UIDebugSCUDSP.h"
 #include "UIDebugSCSP.h"
@@ -129,6 +130,9 @@ UIYabause::UIYabause( QWidget* parent )
 	connect( mLayerViewer, SIGNAL( visibilityChanged( bool ) ), aViewLayerViewer, SLOT( setChecked( bool ) ) );
 	connect( aViewVdp1LayerViewer, SIGNAL( toggled( bool ) ), mVdp1LayerViewer, SLOT( setVisible( bool ) ) );
 	connect( mVdp1LayerViewer, SIGNAL( visibilityChanged( bool ) ), aViewVdp1LayerViewer, SLOT( setChecked( bool ) ) );
+	mVdp1FramebufferViewer = new UIVdp1FramebufferViewer( mYabauseThread, this );
+	connect( aViewVdp1FramebufferViewer, SIGNAL( toggled( bool ) ), mVdp1FramebufferViewer, SLOT( setVisible( bool ) ) );
+	connect( mVdp1FramebufferViewer, SIGNAL( visibilityChanged( bool ) ), aViewVdp1FramebufferViewer, SLOT( setChecked( bool ) ) );
 	// create hide mouse timer
 	hideMouseTimer = new QTimer();
 	// create mouse cursor timer
@@ -229,6 +233,8 @@ void UIYabause::closeEvent( QCloseEvent* e )
 	vs->setValue( "View/LayerViewerGeometry", mLayerViewer->saveGeometry() );
 	vs->setValue( "View/Vdp1LayerViewerVisible", mVdp1LayerViewer->isVisible() );
 	vs->setValue( "View/Vdp1LayerViewerGeometry", mVdp1LayerViewer->saveGeometry() );
+	vs->setValue( "View/Vdp1FramebufferViewerVisible", mVdp1FramebufferViewer->isVisible() );
+	vs->setValue( "View/Vdp1FramebufferViewerGeometry", mVdp1FramebufferViewer->saveGeometry() );
 	vs->setValue( "View/LayerMenuVisible", mViewLayer->isTearOffMenuVisible() );
 	if ( QMenu* menu = layerMenuWindow() )
 		vs->setValue( "View/LayerMenuGeometry", menu->saveGeometry() );
@@ -1122,6 +1128,8 @@ void UIYabause::restoreLayerMenu()
 	aViewLayerViewer->setChecked( settings->value( "View/LayerViewerVisible", false ).toBool() );
 	mVdp1LayerViewer->restoreGeometry( settings->value( "View/Vdp1LayerViewerGeometry" ).toByteArray() );
 	aViewVdp1LayerViewer->setChecked( settings->value( "View/Vdp1LayerViewerVisible", false ).toBool() );
+	mVdp1FramebufferViewer->restoreGeometry( settings->value( "View/Vdp1FramebufferViewerGeometry" ).toByteArray() );
+	aViewVdp1FramebufferViewer->setChecked( settings->value( "View/Vdp1FramebufferViewerVisible", false ).toBool() );
 #if QT_VERSION >= QT_VERSION_CHECK(5, 7, 0)
 	if ( !settings->value( "View/LayerMenuVisible", false ).toBool() )
 		return;

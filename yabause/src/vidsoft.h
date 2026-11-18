@@ -45,6 +45,21 @@ void VIDSoftVdp2DrawScreen(int screen);
 int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *width, int *height,
    u32 *distorted_sprite_count);
 
+#define VIDSOFT_VDP1_FRAMEBUFFER_MAX_PIXELS 0x40000
+
+/* Snapshot the live software framebuffer, between emulation frames.
+ * back=0 selects the display buffer, back=1 the drawing/CPU-access buffer.
+ * pixels and optional raw each hold VIDSOFT_VDP1_FRAMEBUFFER_MAX_PIXELS entries.
+ * pixels are 0xAARRGGBB, raw contains native 8/16-bit pixel values.
+ * Decode RGB555/CRAM using current SPCTL/CRAOFB; ignore VDP2 priorities,
+ * windows, blending and display switches. Zero is transparent; shadow/window
+ * markers are magenta. Full native buffer dimensions are returned, without
+ * display cropping, rotation or interlace scaling. No command replay occurs.
+ * Returns -1 (and zero dimensions) unless the software renderer is active.
+ */
+int VIDSoftGetVdp1Framebuffer(int back, u32 *pixels, u16 *raw,
+   int *width, int *height, int *pixel_size);
+
 void VIDSoftSetBilinear(int b); 
 
 void VIDSoftSetNumPriorityThreads(int num);

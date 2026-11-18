@@ -2348,6 +2348,8 @@ void VIDSoftDeInit(void)
 
    if (vdp1framebuffer[1])
       free(vdp1framebuffer[1]);
+   vdp1framebuffer[0] = vdp1framebuffer[1] = NULL;
+   vdp1frontframebuffer = vdp1backframebuffer = NULL;
 #ifdef USE_OPENGL
    if (VideoUseGL)
    {
@@ -4160,6 +4162,70 @@ void VIDSoftVdp2SetResolution(u16 TVMD)
 {
    VidsoftSetResolution(TVMD);
    TitanSetResolution(vdp2width, vdp2height);
+}
+
+int VIDSoftGetVdp1Framebuffer(int back, u32 *pixels, u16 *raw,
+   int *width, int *height, int *pixel_size)
+{
+   int i, w, h, size;
+   const u8 *buffer;
+   u32 color_offset;
+   int sprite_type;
+   if (width) *width = 0;
+   if (height) *height = 0;
+   if (pixel_size) *pixel_size = 0;
+   if (!pixels || !width || !height || !pixel_size || (back != 0 && back != 1) ||
+      VIDCore != &VIDSoft || !Vdp1Regs || !Vdp2Regs || !Vdp2ColorRam ||
+      !vdp1frontframebuffer || !vdp1backframebuffer)
+      return -1;
+
+   VidsoftWaitForVdp1Thread();
+   buffer = back ? vdp1backframebuffer : vdp1frontframebuffer;
+   size = (Vdp1Regs->TVMR & 1) ? 1 : 2;
+   w = size == 1 && !(Vdp1Regs->TVMR & 2) ? 1024 : 512;
+   h = size == 1 && (Vdp1Regs->TVMR & 2) ? 512 : 256;
+   sprite_type = Vdp2Regs->SPCTL & 0xF;
+   color_offset = (Vdp2Regs->CRAOFB & 0x70) << 4;
+   for (i = 0; i < w * h; i++)
+   {
+      u16 pixel = size == 2 ? ((const u16 *)buffer)[i] : buffer[i];
+      u32 color;
+      spritepixelinfo_struct info;
+      if (raw) raw[i] = pixel;
+      if (!pixel)
+      {
+         pixels[i] = 0;
+         continue;
+      }
+      if (size == 2 && (pixel & 0x8000) && (Vdp2Regs->SPCTL & 0x20))
+      {
+         if (pixel == 0x8000 && (sprite_type >= 8 ||
+            (sprite_type >= 2 && (Vdp2Regs->SPCTL & 0x10))))
+         {
+            pixels[i] = 0xFFFF00FF;
+            continue;
+         }
+         color = ((pixel & 0x1F) << 3) | ((pixel & 0x3E0) << 6) |
+            ((pixel & 0x7C00) << 9);
+      }
+      else
+      {
+         Vdp1GetSpritePixelInfo(sprite_type, &pixel, &info);
+         if (info.normalshadow || (info.msbshadow &&
+            (!pixel || (Vdp2Regs->SPCTL & 0x10))))
+         {
+            pixels[i] = 0xFFFF00FF;
+            continue;
+         }
+         color = Vdp2ColorRamGetColor(color_offset + pixel, Vdp2ColorRam);
+      }
+      pixels[i] = 0xFF000000 | ((color & 0xFF) << 16) |
+         (color & 0xFF00) | ((color >> 16) & 0xFF);
+   }
+   *width = w;
+   *height = h;
+   *pixel_size = size;
+   return 0;
 }
 
 int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *width, int *height,

@@ -119,6 +119,7 @@ set( yabause_qt_HEADERS
 set( yabause_qt_MOC_HEADERS
 	ui/UIYabause.h
 	ui/UILayerViewer.h
+	ui/UIVdp1FramebufferViewer.h
 	ui/UISettings.h
 	ui/UIAbout.h
 	ui/UICheats.h
@@ -167,6 +168,7 @@ set( yabause_qt_SOURCES
 	PerQt.c
 	ui/UIYabause.cpp
 	ui/UILayerViewer.cpp
+	ui/UIVdp1FramebufferViewer.cpp
 	ui/UISettings.cpp
 	ui/UIAbout.cpp
 	ui/UICheats.cpp

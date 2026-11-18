@@ -23,3 +23,10 @@ RBG1 fixtures also check its independent display bit (0x20), its parameter-B
 preview while main display switches are off, and simultaneous RBG0/RBG1 images.
 The seven outputs have fixed identities: VDP1, NBG0..3, RBG0, RBG1. Mode changes
 must clear unused outputs instead of placing a rotation background in NBG0.
+
+Live VDP1 framebuffer snapshots are also checked: distinct front/back buffers,
+swapping, retained pixels, CPU word/byte writes, RGB555 and 16/24-bit CRAM,
+priority-bit removal and palette offsets, shadow/window markers, all three native
+buffer layouts, output bounds, disabled display switches, register/buffer
+preservation, active VDP1 workers, unsupported backends, invalid arguments and
+teardown. These snapshots read actual memory without replaying the command list.

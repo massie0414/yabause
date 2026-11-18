@@ -19,6 +19,7 @@ void YuiErrorMsg(const char *text) { fprintf(stderr, "%s\n", text); }
 void YuiSwapBuffers(void) {}
 extern int VideoUseGL;
 extern u8 *vdp1frontframebuffer, *vdp1backframebuffer;
+extern void VIDSoftVdp1SwapFrameBuffer(void);
 extern u8 sprite_window_mask[704 * 512];
 static int failures;
 static u32 images[VIDSOFT_LAYER_PREVIEW_COUNT][704 * 512 + 1];
@@ -172,9 +173,107 @@ static void check_rbg1(pixel_t *output)
       "normal mode restores NBG0 and clears the old RBG1 image");
 }
 
+static void check_framebuffers(void)
+{
+   static u16 raw[VIDSOFT_VDP1_FRAMEBUFFER_MAX_PIXELS + 1];
+   int w, h, size, mode;
+   u8 *front = vdp1frontframebuffer, *back = vdp1backframebuffer;
+   u8 *saved = (u8 *)malloc(0x80000);
+   Vdp1 regs1;
+   Vdp2 regs2;
+   setup_layer_scene();
+   memset(front, 0, 0x40000);
+   memset(back, 0, 0x40000);
+   Vdp1Regs->TVMR = 0;
+   Vdp1Regs->FBCR = 0;
+   Vdp2Regs->SPCTL = 0x20;
+   Vdp2Regs->CRAOFB = 0;
+   Vdp2Regs->TVMD = 0; /* Display blanking must not hide stored pixels. */
+   Vdp1External.disptoggle = Vdp2External.disptoggle = 0;
+   ((u16 *)front)[17] = 0x801F;
+   ((u16 *)front)[0x1FFFF] = 0xFC00;
+   Vdp1FrameBufferWriteWord(17 * 2, 0x83E0);
+   memcpy(saved, front, 0x40000);
+   memcpy(saved + 0x40000, back, 0x40000);
+   regs1 = *Vdp1Regs;
+   regs2 = *Vdp2Regs;
+   images[0][0x20000] = 0x12345678;
+   raw[0x20000] = 0x1234;
+   check(VIDSoftGetVdp1Framebuffer(0, images[0], raw, &w, &h, &size) == 0,
+      "capture live display framebuffer");
+   check(w == 512 && h == 256 && size == 2, "16-bit framebuffer dimensions");
+   check(images[0][0] == 0 && raw[0] == 0, "zero framebuffer pixels are transparent");
+   check(images[0][17] == 0xFFF80000 && raw[17] == 0x801F,
+      "retained framebuffer pixels visible without command replay");
+   check(images[0][0x1FFFF] == 0xFF0000F8, "last 16-bit framebuffer pixel");
+   check(images[0][0x20000] == 0x12345678 && raw[0x20000] == 0x1234,
+      "16-bit output bounds");
+   check(VIDSoftGetVdp1Framebuffer(1, images[1], raw, &w, &h, &size) == 0 &&
+      images[1][17] == 0xFF00F800 && raw[17] == 0x83E0, "CPU writes visible in drawing buffer");
+   check(!memcmp(saved, front, 0x40000) && !memcmp(saved + 0x40000, back, 0x40000) &&
+      vdp1frontframebuffer == front && vdp1backframebuffer == back, "capture preserves buffers and roles");
+   check(!memcmp(&regs1, Vdp1Regs, sizeof(regs1)) && !memcmp(&regs2, Vdp2Regs, sizeof(regs2)),
+      "framebuffer capture preserves registers");
+   check(!Vdp1External.disptoggle && !Vdp2External.disptoggle, "framebuffer capture preserves display toggles");
+   VIDSoftVdp1SwapFrameBuffer();
+   check(VIDSoftGetVdp1Framebuffer(0, images[0], NULL, &w, &h, &size) == 0 &&
+      images[0][17] == 0xFF00F800, "display snapshot follows framebuffer swaps");
+   check(VIDSoftGetVdp1Framebuffer(1, images[1], NULL, &w, &h, &size) == 0 &&
+      images[1][17] == 0xFFF80000, "drawing snapshot follows framebuffer swaps");
+   VIDSoftVdp1SwapFrameBuffer();
+   Vdp2Internal.ColorMode = 0;
+   Vdp2Regs->CRAOFB = 0x10;
+   Vdp2Regs->SPCTL = 0; /* MSB is priority, not RGB, in palette-only mode. */
+   ((u16 *)front)[17] = 0xE801;
+   T2WriteWord(Vdp2ColorRam, 0x202, 0x7C1F);
+   VIDSoftGetVdp1Framebuffer(0, images[0], NULL, &w, &h, &size);
+   check(images[0][17] == 0xFFF800F8, "palette ignores priority/calculation bits and applies CRAOFB");
+   Vdp2Internal.ColorMode = 2;
+   T2WriteLong(Vdp2ColorRam, 0x404, 0x00123456);
+   VIDSoftGetVdp1Framebuffer(0, images[0], NULL, &w, &h, &size);
+   check(images[0][17] == 0xFF563412, "24-bit CRAM decoding");
+   Vdp2Internal.ColorMode = 1;
+   T2WriteWord(Vdp2ColorRam, 0x202, 0x03E0);
+   Vdp2Regs->SPCTL = 0x32;
+   ((u16 *)front)[17] = 0x8000;
+   ((u16 *)front)[18] = 0x7FE;
+   VIDSoftGetVdp1Framebuffer(0, images[0], NULL, &w, &h, &size);
+   check(images[0][17] == 0xFFFF00FF && images[0][18] == 0xFFFF00FF,
+      "window and normal-shadow markers are visible");
+   Vdp2Regs->SPCTL = 8;
+   for (mode = 1; mode <= 3; mode += 2)
+   {
+      Vdp1Regs->TVMR = mode;
+      Vdp1Regs->FBCR = 8;
+      memset(front, 0, 0x40000);
+      front[17] = front[0x3FFFF] = 0x81;
+      raw[0x40000] = 0x1234;
+      images[0][0x40000] = 0x12345678;
+      check(VIDSoftGetVdp1Framebuffer(0, images[0], raw, &w, &h, &size) == 0,
+         "capture 8-bit framebuffer");
+      check(w == (mode == 1 ? 1024 : 512) && h == (mode == 1 ? 256 : 512) && size == 1,
+         "normal/rotation 8-bit dimensions without interlace scaling");
+      check(images[0][17] == 0xFF00F800 && images[0][0x3FFFF] == 0xFF00F800 && raw[17] == 0x81,
+         "8-bit palette decoding and last pixel");
+      check(raw[0x40000] == 0x1234 && images[0][0x40000] == 0x12345678, "8-bit output bounds");
+      Vdp1FrameBufferWriteByte(0x3FFFF, 0x81);
+      check(VIDSoftGetVdp1Framebuffer(1, images[1], raw, &w, &h, &size) == 0 &&
+         images[1][0x3FFFF] == 0xFF00F800 && raw[0x3FFFF] == 0x81, "8-bit CPU byte writes visible");
+   }
+   check(VIDSoftGetVdp1Framebuffer(2, images[0], NULL, &w, &h, &size) == -1 && !w && !h && !size,
+      "invalid buffer rejected and metadata cleared");
+   check(VIDSoftGetVdp1Framebuffer(0, NULL, NULL, &w, &h, &size) == -1, "null framebuffer output rejected");
+   VIDCore = &VIDDummy;
+   check(VIDSoftGetVdp1Framebuffer(0, images[0], NULL, &w, &h, &size) == -1,
+      "another backend cannot expose stale software buffers");
+   VIDCore = &VIDSoft;
+   free(saved);
+   setup_layer_scene();
+}
+
 int main(void)
 {
-   int i, w, h;
+   int i, w, h, size;
    pixel_t *before = (pixel_t *)calloc(704 * 512, sizeof(pixel_t));
    pixel_t *after = (pixel_t *)calloc(704 * 512, sizeof(pixel_t));
    yabauseinit_struct init = {0};
@@ -182,6 +281,8 @@ int main(void)
    if (YabauseInit(&init) != 0) return 2;
    setup_layer_scene();
    capture_and_check(0); /* No software renderer or Titan initialization. */
+   check(VIDSoftGetVdp1Framebuffer(0, images[0], NULL, &w, &h, &size) == -1,
+      "live framebuffer unavailable before software initialization");
    check_distorted_sprites();
    VideoUseGL = 0;
    check(VideoChangeCore(VIDCORE_SOFT) == 0, "initialize software renderer without GL");
@@ -198,6 +299,7 @@ int main(void)
    check(!memcmp(before, after, 704 * 512 * sizeof(pixel_t)), "live compositor pixels preserved");
    check_distorted_sprites();
    check_rbg1(after);
+   check_framebuffers();
    setup_layer_scene();
    VIDSoftSetVdp1ThreadEnable(1);
    VIDSoftSetNumLayerThreads(3);
@@ -206,6 +308,8 @@ int main(void)
       Vdp1Regs->addr = 0;
       VIDSoft.Vdp1DrawStart();
       VIDSoft.Vdp2DrawScreens();
+      check(VIDSoftGetVdp1Framebuffer(1, images[0], NULL, &w, &h, &size) == 0 &&
+         images[0][20 * w + 20] == 0xFFF800F8, "live snapshot waits for VDP1 draw worker");
       check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == 0, "capture waits for active renderer workers");
    }
    VIDSoftSetVdp1ThreadEnable(0);
@@ -221,6 +325,8 @@ int main(void)
    check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == 0, "display off capture");
    for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++) check(images[i][20 * w + 20] == 0, "display off clears old images");
    YabauseDeInit();
+   check(VIDSoftGetVdp1Framebuffer(0, images[0], NULL, &w, &h, &size) == -1 && !w && !h && !size,
+      "live framebuffer capture after teardown rejected");
    check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == -1, "capture after teardown rejected");
    free(before); free(after);
    printf("Layer preview failures: %d\n", failures);
