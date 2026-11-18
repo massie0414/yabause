@@ -16,3 +16,5 @@ video backend, as when the main window uses another renderer.
 
 RBG1 fixtures also check its independent display bit (0x20), its parameter-B
 preview while main display switches are off, and simultaneous RBG0/RBG1 images.
+The seven outputs have fixed identities: VDP1, NBG0..3, RBG0, RBG1. Mode changes
+must clear unused outputs instead of placing a rotation background in NBG0.

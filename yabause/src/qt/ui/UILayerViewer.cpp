@@ -53,13 +53,82 @@ private:
     QImage mImage;
 };
 
-UILayerViewer::UILayerViewer(YabauseThread *emulation, QWidget *parent)
-    : QDialog(parent, Qt::Window), mEmulation(emulation)
+UILayerPreviewSource::UILayerPreviewSource(YabauseThread *emulation, QObject *parent)
+    : QObject(parent), mEmulation(emulation), mTimer(new QTimer(this))
 {
-    setObjectName("layerViewer");
-    setWindowTitle(tr("Layer Viewer"));
+    mTimer->setSingleShot(true);
+    connect(mTimer, SIGNAL(timeout()), this, SLOT(refreshAutomatic()));
+}
+
+void UILayerPreviewSource::addViewer(UILayerViewer *viewer)
+{
+    mViewers.append(QPointer<UILayerViewer>(viewer));
+}
+
+bool UILayerPreviewSource::needsRefresh() const
+{
+    foreach (const QPointer<UILayerViewer> &viewer, mViewers)
+        if (viewer && viewer->autoRefresh()) return true;
+    return false;
+}
+
+void UILayerPreviewSource::updateTimer(int delay)
+{
+    mTimer->stop();
+    if (needsRefresh()) mTimer->start(delay);
+}
+
+int UILayerPreviewSource::capture()
+{
+    QElapsedTimer elapsed;
+    elapsed.start();
+    int width = 0, height = 0;
+    bool available = mEmulation->init() == 0;
+    if (available)
+    {
+        u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT];
+        for (int i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; ++i)
+        {
+            mPixels[i].resize(704 * 512);
+            layers[i] = mPixels[i].data();
+        }
+        // Emulation and this timer run on the GUI thread. Capture between
+        // frames, not from swapBuffers while a renderer is still on the stack.
+        available = VIDSoftRenderLayerPreviews(layers, &width, &height) == 0;
+    }
+    for (int i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; ++i)
+        mImages[i] = available
+            ? QImage(reinterpret_cast<const uchar *>(mPixels[i].constData()),
+                width, height, width * 4, QImage::Format_ARGB32).copy()
+            : QImage();
+    return qMax(200, int(elapsed.elapsed() * 4));
+}
+
+void UILayerPreviewSource::refreshAutomatic()
+{
+    if (!needsRefresh()) return;
+    const int delay = capture();
+    foreach (const QPointer<UILayerViewer> &viewer, mViewers)
+        if (viewer && viewer->autoRefresh()) viewer->displayImages(mImages);
+    updateTimer(delay);
+}
+
+void UILayerPreviewSource::refreshViewer(UILayerViewer *viewer)
+{
+    mTimer->stop();
+    const int delay = capture();
+    viewer->displayImages(mImages);
+    updateTimer(delay);
+}
+
+UILayerViewer::UILayerViewer(UILayerPreviewSource *source, Kind kind, QWidget *parent)
+    : QDialog(parent, Qt::Window), mSource(source), mKind(kind)
+{
+    const bool vdp1 = mKind == VDP1;
+    setObjectName(vdp1 ? "vdp1LayerViewer" : "layerViewer");
+    setWindowTitle(vdp1 ? tr("VDP1 Layer Viewer") : tr("VDP2 Layer Viewer"));
     setModal(false);
-    resize(960, 620);
+    resize(vdp1 ? QSize(520, 450) : QSize(960, 620));
 
     QVBoxLayout *layout = new QVBoxLayout(this);
     QLabel *description = new QLabel(tr("Each layer is shown independently of View > Layer. Checkerboard = transparent."), this);
@@ -67,23 +136,26 @@ UILayerViewer::UILayerViewer(YabauseThread *emulation, QWidget *parent)
     layout->addWidget(description);
 
     QGridLayout *grid = new QGridLayout;
-    const char *names[6] = { "VDP1", "NBG0", "NBG1", "NBG2", "NBG3", "RBG0" };
-    for (int i = 0; i < 6; ++i)
+    const char *names[6] = { "NBG0", "NBG1", "NBG2", "NBG3", "RBG0", "RBG1" };
+    const int count = vdp1 ? 1 : 6;
+    for (int i = 0; i < count; ++i)
     {
-        QGroupBox *group = new QGroupBox(QString::fromLatin1(names[i]), this);
-        mGroups[i] = group;
+        const QString name = QString::fromLatin1(vdp1 ? "VDP1" : names[i]);
+        QGroupBox *group = new QGroupBox(name, this);
         group->setObjectName(QString::fromLatin1("layerGroup%1").arg(i));
         QVBoxLayout *groupLayout = new QVBoxLayout(group);
         mViews[i] = new LayerPreviewWidget(group);
-        mViews[i]->setObjectName(QString::fromLatin1("preview%1").arg(names[i]));
+        mViews[i]->setObjectName(QString::fromLatin1("preview%1").arg(name));
         groupLayout->addWidget(mViews[i]);
         grid->addWidget(group, i / 3, i % 3);
     }
-    for (int i = 0; i < 3; ++i) grid->setColumnStretch(i, 1);
-    for (int i = 0; i < 2; ++i) grid->setRowStretch(i, 1);
+    for (int i = 0; i < (vdp1 ? 1 : 3); ++i) grid->setColumnStretch(i, 1);
+    for (int i = 0; i < (vdp1 ? 1 : 2); ++i) grid->setRowStretch(i, 1);
     layout->addLayout(grid, 1);
 
-    QLabel *note = new QLabel(tr("Software preview before layer blending. VDP1 shows the current command list."), this);
+    QLabel *note = new QLabel(vdp1
+        ? tr("Software preview of the current VDP1 command list.")
+        : tr("Software preview before layer blending. Unused layers remain transparent."), this);
     note->setWordWrap(true);
     layout->addWidget(note);
 
@@ -98,11 +170,9 @@ UILayerViewer::UILayerViewer(YabauseThread *emulation, QWidget *parent)
     controls->addWidget(mStatus, 1);
     layout->addLayout(controls);
 
-    mTimer = new QTimer(this);
-    mTimer->setSingleShot(true);
-    connect(mTimer, SIGNAL(timeout()), this, SLOT(refresh()));
     connect(refreshButton, SIGNAL(clicked()), this, SLOT(refresh()));
     connect(mAutoRefresh, SIGNAL(toggled(bool)), this, SLOT(refresh()));
+    source->addViewer(this);
 }
 
 void UILayerViewer::showEvent(QShowEvent *event)
@@ -114,54 +184,27 @@ void UILayerViewer::showEvent(QShowEvent *event)
 
 void UILayerViewer::hideEvent(QHideEvent *event)
 {
-    mTimer->stop();
     QDialog::hideEvent(event);
     emit visibilityChanged(false);
+    if (mSource) mSource->updateTimer();
 }
 
 void UILayerViewer::refresh()
 {
-    mTimer->stop();
-    if (!isVisible()) return;
-    QElapsedTimer elapsed;
-    elapsed.start();
-    int width = 0, height = 0;
-    bool available = mEmulation->init() == 0;
-    if (available)
-    {
-        u32 *layers[6];
-        for (int i = 0; i < 6; ++i)
-        {
-            mPixels[i].resize(704 * 512);
-            layers[i] = mPixels[i].data();
-        }
-        // Emulation and this timer run on the GUI thread. Capture between
-        // frames, not from swapBuffers while a renderer is still on the stack.
-        available = VIDSoftRenderLayerPreviews(layers, &width, &height) == 0;
-    }
-    // RBG1 shares NBG0's renderer, but belongs in the rotation preview slot.
-    // NBG0 is unavailable in RBG1 mode, so its slot can show a concurrent RBG0.
-    int sources[6] = { 0, 1, 2, 3, 4, 5 };
-    const char *names[6] = { "VDP1", "NBG0", "NBG1", "NBG2", "NBG3", "RBG0" };
-    if (available && (Vdp2Regs->BGON & 0x20))
-    {
-        sources[1] = 5;
-        sources[5] = 1;
-        names[1] = (Vdp2Regs->BGON & 0x10) ? "RBG0" : "NBG0";
-        names[5] = "RBG1";
-    }
-    for (int i = 0; i < 6; ++i)
-    {
-        mGroups[i]->setTitle(QString::fromLatin1(names[i]));
-        mViews[i]->setObjectName(QString::fromLatin1("preview%1").arg(names[i]));
-        mViews[i]->setImage(available
-            ? QImage(reinterpret_cast<const uchar *>(mPixels[sources[i]].constData()),
-                width, height, width * 4, QImage::Format_ARGB32).copy()
-            : QImage());
-    }
-    mStatus->setText(available ? tr("%1 x %2 per layer").arg(width).arg(height)
-                              : tr("Start emulation to view layers."));
-    // At most five captures per second; slow captures reduce their own rate.
-    if (mAutoRefresh->isChecked())
-        mTimer->start(qMax(200, int(elapsed.elapsed() * 4)));
+    if (isVisible() && mSource) mSource->refreshViewer(this);
+}
+
+bool UILayerViewer::autoRefresh() const
+{
+    return isVisible() && mAutoRefresh->isChecked();
+}
+
+void UILayerViewer::displayImages(const QImage *images)
+{
+    const int count = mKind == VDP1 ? 1 : 6;
+    const int first = mKind == VDP1 ? 0 : 1;
+    for (int i = 0; i < count; ++i) mViews[i]->setImage(images[first + i]);
+    const QImage &image = images[first];
+    mStatus->setText(image.isNull() ? tr("Start emulation to view layers.")
+        : tr("%1 x %2 per layer").arg(image.width()).arg(image.height()));
 }

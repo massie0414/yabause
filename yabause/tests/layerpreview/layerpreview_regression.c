@@ -21,8 +21,8 @@ extern int VideoUseGL;
 extern u8 *vdp1frontframebuffer, *vdp1backframebuffer;
 extern u8 sprite_window_mask[704 * 512];
 static int failures;
-static u32 images[6][704 * 512 + 1];
-static u32 *layers[6] = { images[0], images[1], images[2], images[3], images[4], images[5] };
+static u32 images[VIDSOFT_LAYER_PREVIEW_COUNT][704 * 512 + 1];
+static u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT] = { images[0], images[1], images[2], images[3], images[4], images[5], images[6] };
 
 static void check(int condition, const char *message)
 {
@@ -35,7 +35,7 @@ static void capture_and_check(int software)
    Vdp1 before1 = *Vdp1Regs;
    Vdp2 before2 = *Vdp2Regs;
    VideoInterface_struct *core = VIDCore;
-   const u32 colors[6] = { 0xFFF800F8, 0xFFF80000, 0xFF00F800, 0xFF0000F8, 0xFFF8F800, 0xFF00F8F8 };
+   const u32 colors[VIDSOFT_LAYER_PREVIEW_COUNT] = { 0xFFF800F8, 0xFFF80000, 0xFF00F800, 0xFF0000F8, 0xFFF8F800, 0xFF00F8F8, 0 };
    u8 *ram = (u8 *)malloc(0x101000);
    u8 *fb = software ? (u8 *)malloc(0x80000 + sizeof(sprite_window_mask)) : NULL;
    memcpy(ram, Vdp1Ram, 0x80000);
@@ -52,10 +52,10 @@ static void capture_and_check(int software)
    Vdp2External.disptoggle = 0;
    Vdp1External.manualerase = 1;
    TitanGetResolution(&titan_w, &titan_h);
-   for (i = 0; i < 6; i++) images[i][704 * 512] = 0x12345678;
+   for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++) images[i][704 * 512] = 0x12345678;
    check(VIDSoftRenderLayerPreviews(layers, &width, &height) == 0, "capture succeeds");
    check(width == 320 && height == 224, "native preview dimensions");
-   for (i = 0; i < 6; i++)
+   for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++)
    {
       if (images[i][20 * width + 20] != colors[i])
          fprintf(stderr, "Layer %d: got %08X expected %08X\n", i, images[i][20 * width + 20], colors[i]);
@@ -100,14 +100,20 @@ static void check_rbg1(pixel_t *output)
    check(output[20 * 320 + 20] != enabled, "RBG1 is hidden even when every other switch is on");
    Vdp2External.disptoggle = 0;
    check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "RBG1-only preview capture");
-   check(images[1][20 * w + 20] == 0xFFF80000, "RBG1 preview uses parameter B");
+   check(images[6][20 * w + 20] == 0xFFF80000, "RBG1 preview uses its own fixed output and parameter B");
+   check(images[1][20 * w + 20] == 0, "NBG0 stays empty in RBG1 mode");
    check(images[5][20 * w + 20] == 0, "RBG0 is empty in RBG1-only mode");
    for (i = 2; i < 5; i++) check(images[i][20 * w + 20] == 0, "unused normal backgrounds stay empty");
    check(Vdp2External.disptoggle == 0, "RBG1 preview preserves display switches");
    setup_rbg1_scene(1);
    check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "both rotation backgrounds captured");
-   check(images[1][20 * w + 20] == 0xFFF80000, "RBG1 keeps its separate image");
+   check(images[6][20 * w + 20] == 0xFFF80000, "RBG1 keeps its separate image");
+   check(images[1][20 * w + 20] == 0, "NBG0 does not contain either rotation background");
    check(images[5][20 * w + 20] == 0xFF00F8F8, "RBG0 keeps its separate image");
+   setup_layer_scene();
+   check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "return to normal background mode");
+   check(images[1][20 * w + 20] == 0xFFF80000 && images[6][20 * w + 20] == 0,
+      "normal mode restores NBG0 and clears the old RBG1 image");
 }
 
 int main(void)
@@ -148,14 +154,14 @@ int main(void)
    VIDSoftSetNumLayerThreads(0);
    Vdp2Regs->TVMD = 0x80E3; /* 704 x 512, double-density interlace. */
    check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0 && w == 704 && h == 512, "maximum interlaced dimensions");
-   for (i = 0; i < 6; i++) check(images[i][704 * 512] == 0x12345678, "interlaced output bounds");
+   for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++) check(images[i][704 * 512] == 0x12345678, "interlaced output bounds");
    T1WriteLong(Vdp2Ram, 0x70020, 0x8000); /* Rotate/shear: use the non-coefficient path. */
    check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "rotated interlaced background capture");
    check(images[5][500 * w + 500] == 0xFF00F8F8, "rotated background fills the last field rows");
-   for (i = 0; i < 6; i++) check(images[i][704 * 512] == 0x12345678, "rotated output bounds");
+   for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++) check(images[i][704 * 512] == 0x12345678, "rotated output bounds");
    Vdp2Regs->TVMD = 0;
    check(VIDSoftRenderLayerPreviews(layers, &w, &h) == 0, "display off capture");
-   for (i = 0; i < 6; i++) check(images[i][20 * w + 20] == 0, "display off clears old images");
+   for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++) check(images[i][20 * w + 20] == 0, "display off clears old images");
    YabauseDeInit();
    check(VIDSoftRenderLayerPreviews(layers, &w, &h) == -1, "capture after teardown rejected");
    free(before); free(after);

@@ -85,6 +85,7 @@ protected:
 	YabauseThread* mYabauseThread;
 	QDockWidget* mLogDock;
 	UILayerViewer* mLayerViewer;
+	UILayerViewer* mVdp1LayerViewer;
 	QTextEdit* teLog;
 	bool mCanLog;
 	bool mInit;

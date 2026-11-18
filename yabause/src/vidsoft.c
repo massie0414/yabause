@@ -4188,7 +4188,7 @@ void VIDSoftVdp2SetResolution(u16 TVMD)
    TitanSetResolution(vdp2width, vdp2height);
 }
 
-int VIDSoftRenderLayerPreviews(u32 *layers[6], int *width, int *height)
+int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *width, int *height)
 {
    int i;
    int saved_dimensions[10];
@@ -4200,7 +4200,7 @@ int VIDSoftRenderLayerPreviews(u32 *layers[6], int *width, int *height)
    if (!layers || !width || !height || !Vdp1Regs || !Vdp2Regs ||
       !Vdp1Ram || !Vdp2Ram || !Vdp2ColorRam || layer_preview_output)
       return -1;
-   for (i = 0; i < 6; i++)
+   for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++)
       if (!layers[i]) return -1;
 
    scratch = (u8 *)calloc(1, 0x40000 + sizeof(sprite_window_mask));
@@ -4236,7 +4236,7 @@ int VIDSoftRenderLayerPreviews(u32 *layers[6], int *width, int *height)
    VidsoftSetResolution(Vdp2Regs->TVMD);
    *width = vdp2width;
    *height = vdp2height;
-   for (i = 0; i < 6; i++)
+   for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++)
       memset(layers[i], 0, vdp2width * vdp2height * sizeof(u32));
 
    Vdp1External.disptoggle = 1;
@@ -4257,6 +4257,9 @@ int VIDSoftRenderLayerPreviews(u32 *layers[6], int *width, int *height)
       for (i = 0; i < 5; i++)
       {
          layer_preview_output = layers[i + 1];
+         /* The rasterizer is shared, but the previews have fixed identities. */
+         if (i == 0 && (Vdp2Regs->BGON & 0x20))
+            layer_preview_output = layers[6];
          /* Use the same rasterizers without touching Titan's resolution. */
          switch (i)
          {

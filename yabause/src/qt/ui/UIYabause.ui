@@ -212,6 +212,7 @@
     <addaction name="aViewFPS"/>
     <addaction name="mViewLayer"/>
     <addaction name="aViewLayerViewer"/>
+    <addaction name="aViewVdp1LayerViewer"/>
     <addaction name="aViewFullscreen"/>
     <addaction name="aViewLog"/>
    </widget>
@@ -647,7 +648,15 @@
     <bool>true</bool>
    </property>
    <property name="text">
-    <string>Layer &amp;Viewer</string>
+    <string>VDP&amp;2 Layer Viewer</string>
+   </property>
+  </action>
+  <action name="aViewVdp1LayerViewer">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>VDP&amp;1 Layer Viewer</string>
    </property>
   </action>
   <action name="aViewLayerRBG0">
