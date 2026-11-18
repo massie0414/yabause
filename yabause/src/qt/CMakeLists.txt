@@ -119,6 +119,7 @@ set( yabause_qt_HEADERS
 set( yabause_qt_MOC_HEADERS
 	ui/UIYabause.h
 	ui/UILayerViewer.h
+	ui/UIVdp1FramebufferViewer.h
 	ui/UIVdp2VramViewer.h
 	ui/UIVdp1VramViewer.h
 	ui/UISettings.h
@@ -169,6 +170,7 @@ set( yabause_qt_SOURCES
 	PerQt.c
 	ui/UIYabause.cpp
 	ui/UILayerViewer.cpp
+	ui/UIVdp1FramebufferViewer.cpp
 	ui/UIVdp2VramViewer.cpp
 	ui/UIVdp1VramViewer.cpp
 	ui/UISettings.cpp

@@ -213,6 +213,7 @@
     <addaction name="mViewLayer"/>
     <addaction name="aViewLayerViewer"/>
     <addaction name="aViewVdp1LayerViewer"/>
+    <addaction name="aViewVdp1FramebufferViewer"/>
     <addaction name="aViewRbg0TransformViewer"/>
     <addaction name="aViewVdp2VramViewer"/>
     <addaction name="aViewVdp1VramViewer"/>
@@ -668,6 +669,14 @@
    </property>
    <property name="text">
     <string>VDP&amp;1 Layer Viewer</string>
+   </property>
+  </action>
+  <action name="aViewVdp1FramebufferViewer">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>VDP1 Framebuffer Viewer</string>
    </property>
   </action>
   <action name="aViewVdp1VramViewer">

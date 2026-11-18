@@ -29,6 +29,7 @@
 #include "UIDebugVDP1.h"
 #include "UIDebugVDP2.h"
 #include "UILayerViewer.h"
+#include "UIVdp1FramebufferViewer.h"
 #include "UIVdp2VramViewer.h"
 #include "UIVdp1VramViewer.h"
 #include "UIDebugM68K.h"
@@ -135,6 +136,9 @@ UIYabause::UIYabause( QWidget* parent )
 	connect( mLayerViewer, SIGNAL( visibilityChanged( bool ) ), aViewLayerViewer, SLOT( setChecked( bool ) ) );
 	connect( aViewVdp1LayerViewer, SIGNAL( toggled( bool ) ), mVdp1LayerViewer, SLOT( setVisible( bool ) ) );
 	connect( mVdp1LayerViewer, SIGNAL( visibilityChanged( bool ) ), aViewVdp1LayerViewer, SLOT( setChecked( bool ) ) );
+	mVdp1FramebufferViewer = new UIVdp1FramebufferViewer( mYabauseThread, this );
+	connect( aViewVdp1FramebufferViewer, SIGNAL( toggled( bool ) ), mVdp1FramebufferViewer, SLOT( setVisible( bool ) ) );
+	connect( mVdp1FramebufferViewer, SIGNAL( visibilityChanged( bool ) ), aViewVdp1FramebufferViewer, SLOT( setChecked( bool ) ) );
 	connect( aViewRbg0TransformViewer, SIGNAL( toggled( bool ) ), mRbg0TransformViewer, SLOT( setVisible( bool ) ) );
 	connect( mRbg0TransformViewer, SIGNAL( visibilityChanged( bool ) ), aViewRbg0TransformViewer, SLOT( setChecked( bool ) ) );
 	mVdp2VramViewer = new UIVdp2VramViewer( mYabauseThread, this );
@@ -240,6 +244,8 @@ void UIYabause::closeEvent( QCloseEvent* e )
 	vs->setValue( "View/LayerViewerGeometry", mLayerViewer->saveGeometry() );
 	vs->setValue( "View/Vdp1LayerViewerVisible", mVdp1LayerViewer->isVisible() );
 	vs->setValue( "View/Vdp1LayerViewerGeometry", mVdp1LayerViewer->saveGeometry() );
+	vs->setValue( "View/Vdp1FramebufferViewerVisible", mVdp1FramebufferViewer->isVisible() );
+	vs->setValue( "View/Vdp1FramebufferViewerGeometry", mVdp1FramebufferViewer->saveGeometry() );
 	vs->setValue( "View/Rbg0TransformViewerVisible", mRbg0TransformViewer->isVisible() );
 	vs->setValue( "View/Rbg0TransformViewerGeometry", mRbg0TransformViewer->saveGeometry() );
 	vs->setValue( "View/Vdp2VramViewerVisible", mVdp2VramViewer->isVisible() );
@@ -1139,6 +1145,8 @@ void UIYabause::restoreLayerMenu()
 	aViewLayerViewer->setChecked( settings->value( "View/LayerViewerVisible", false ).toBool() );
 	mVdp1LayerViewer->restoreGeometry( settings->value( "View/Vdp1LayerViewerGeometry" ).toByteArray() );
 	aViewVdp1LayerViewer->setChecked( settings->value( "View/Vdp1LayerViewerVisible", false ).toBool() );
+	mVdp1FramebufferViewer->restoreGeometry( settings->value( "View/Vdp1FramebufferViewerGeometry" ).toByteArray() );
+	aViewVdp1FramebufferViewer->setChecked( settings->value( "View/Vdp1FramebufferViewerVisible", false ).toBool() );
 	mRbg0TransformViewer->restoreGeometry( settings->value( "View/Rbg0TransformViewerGeometry" ).toByteArray() );
 	aViewRbg0TransformViewer->setChecked( settings->value( "View/Rbg0TransformViewerVisible", false ).toBool() );
 	mVdp2VramViewer->restoreGeometry( settings->value( "View/Vdp2VramViewerGeometry" ).toByteArray() );

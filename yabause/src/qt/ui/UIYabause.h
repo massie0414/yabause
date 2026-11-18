@@ -34,6 +34,7 @@ class YabauseGLProxy;
 class QTextEdit;
 class QDockWidget;
 class UILayerViewer;
+class UIVdp1FramebufferViewer;
 class UIVdp2VramViewer;
 class UIVdp1VramViewer;
 
@@ -88,6 +89,7 @@ protected:
 	QDockWidget* mLogDock;
 	UILayerViewer* mLayerViewer;
 	UILayerViewer* mVdp1LayerViewer;
+	UIVdp1FramebufferViewer* mVdp1FramebufferViewer;
 	UILayerViewer* mRbg0TransformViewer;
 	UIVdp2VramViewer* mVdp2VramViewer;
 	UIVdp1VramViewer* mVdp1VramViewer;
