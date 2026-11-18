@@ -216,6 +216,7 @@
     <addaction name="aViewVdp1FramebufferViewer"/>
     <addaction name="aViewRbg0TransformViewer"/>
     <addaction name="aViewVdp2VramViewer"/>
+    <addaction name="aViewVdp1VramViewer"/>
     <addaction name="aViewFullscreen"/>
     <addaction name="aViewLog"/>
    </widget>
@@ -676,6 +677,14 @@
    </property>
    <property name="text">
     <string>VDP1 Framebuffer Viewer</string>
+   </property>
+  </action>
+  <action name="aViewVdp1VramViewer">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>VDP1 VRAM Viewer</string>
    </property>
   </action>
   <action name="aViewVdp2VramViewer">

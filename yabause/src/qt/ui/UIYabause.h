@@ -36,6 +36,7 @@ class QDockWidget;
 class UILayerViewer;
 class UIVdp1FramebufferViewer;
 class UIVdp2VramViewer;
+class UIVdp1VramViewer;
 
 enum BARDISPLAY
 {
@@ -91,6 +92,7 @@ protected:
 	UIVdp1FramebufferViewer* mVdp1FramebufferViewer;
 	UILayerViewer* mRbg0TransformViewer;
 	UIVdp2VramViewer* mVdp2VramViewer;
+	UIVdp1VramViewer* mVdp1VramViewer;
 	QTextEdit* teLog;
 	bool mCanLog;
 	bool mInit;

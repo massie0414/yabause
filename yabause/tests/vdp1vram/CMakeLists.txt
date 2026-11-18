@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.10)
+project(vdp1vram_regression C)
+enable_testing()
+add_executable(vdp1vram_regression vdp1vram_regression.c ../../src/vdp1debug.c)
+target_include_directories(vdp1vram_regression PRIVATE ../../src)
+target_compile_definitions(vdp1vram_regression PRIVATE HAVE_STDINT_H=1 HAVE_C99_VARIADIC_MACROS=1)
+add_test(NAME vdp1vram_regression COMMAND vdp1vram_regression)

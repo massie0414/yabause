@@ -31,6 +31,7 @@
 #include "UILayerViewer.h"
 #include "UIVdp1FramebufferViewer.h"
 #include "UIVdp2VramViewer.h"
+#include "UIVdp1VramViewer.h"
 #include "UIDebugM68K.h"
 #include "UIDebugSCUDSP.h"
 #include "UIDebugSCSP.h"
@@ -128,6 +129,9 @@ UIYabause::UIYabause( QWidget* parent )
 	mLayerViewer = new UILayerViewer( layerPreviews, UILayerViewer::VDP2, this );
 	mVdp1LayerViewer = new UILayerViewer( layerPreviews, UILayerViewer::VDP1, this );
 	mRbg0TransformViewer = new UILayerViewer( layerPreviews, UILayerViewer::RBG0Transform, this );
+	mVdp1VramViewer = new UIVdp1VramViewer( mYabauseThread, this );
+	connect( aViewVdp1VramViewer, SIGNAL( toggled( bool ) ), mVdp1VramViewer, SLOT( setVisible( bool ) ) );
+	connect( mVdp1VramViewer, SIGNAL( visibilityChanged( bool ) ), aViewVdp1VramViewer, SLOT( setChecked( bool ) ) );
 	connect( aViewLayerViewer, SIGNAL( toggled( bool ) ), mLayerViewer, SLOT( setVisible( bool ) ) );
 	connect( mLayerViewer, SIGNAL( visibilityChanged( bool ) ), aViewLayerViewer, SLOT( setChecked( bool ) ) );
 	connect( aViewVdp1LayerViewer, SIGNAL( toggled( bool ) ), mVdp1LayerViewer, SLOT( setVisible( bool ) ) );
@@ -246,6 +250,8 @@ void UIYabause::closeEvent( QCloseEvent* e )
 	vs->setValue( "View/Rbg0TransformViewerGeometry", mRbg0TransformViewer->saveGeometry() );
 	vs->setValue( "View/Vdp2VramViewerVisible", mVdp2VramViewer->isVisible() );
 	vs->setValue( "View/Vdp2VramViewerGeometry", mVdp2VramViewer->saveGeometry() );
+	vs->setValue( "View/Vdp1VramViewerVisible", mVdp1VramViewer->isVisible() );
+	vs->setValue( "View/Vdp1VramViewerGeometry", mVdp1VramViewer->saveGeometry() );
 	vs->setValue( "View/LayerMenuVisible", mViewLayer->isTearOffMenuVisible() );
 	if ( QMenu* menu = layerMenuWindow() )
 		vs->setValue( "View/LayerMenuGeometry", menu->saveGeometry() );
@@ -1145,6 +1151,8 @@ void UIYabause::restoreLayerMenu()
 	aViewRbg0TransformViewer->setChecked( settings->value( "View/Rbg0TransformViewerVisible", false ).toBool() );
 	mVdp2VramViewer->restoreGeometry( settings->value( "View/Vdp2VramViewerGeometry" ).toByteArray() );
 	aViewVdp2VramViewer->setChecked( settings->value( "View/Vdp2VramViewerVisible", false ).toBool() );
+	mVdp1VramViewer->restoreGeometry( settings->value( "View/Vdp1VramViewerGeometry" ).toByteArray() );
+	aViewVdp1VramViewer->setChecked( settings->value( "View/Vdp1VramViewerVisible", false ).toBool() );
 #if QT_VERSION >= QT_VERSION_CHECK(5, 7, 0)
 	if ( !settings->value( "View/LayerMenuVisible", false ).toBool() )
 		return;
