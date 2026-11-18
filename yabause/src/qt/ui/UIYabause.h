@@ -86,6 +86,7 @@ protected:
 	QDockWidget* mLogDock;
 	UILayerViewer* mLayerViewer;
 	UILayerViewer* mVdp1LayerViewer;
+	UILayerViewer* mRbg0TransformViewer;
 	QTextEdit* teLog;
 	bool mCanLog;
 	bool mInit;

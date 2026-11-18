@@ -125,10 +125,13 @@ UIYabause::UIYabause( QWidget* parent )
 	UILayerPreviewSource* layerPreviews = new UILayerPreviewSource( mYabauseThread, this );
 	mLayerViewer = new UILayerViewer( layerPreviews, UILayerViewer::VDP2, this );
 	mVdp1LayerViewer = new UILayerViewer( layerPreviews, UILayerViewer::VDP1, this );
+	mRbg0TransformViewer = new UILayerViewer( layerPreviews, UILayerViewer::RBG0Transform, this );
 	connect( aViewLayerViewer, SIGNAL( toggled( bool ) ), mLayerViewer, SLOT( setVisible( bool ) ) );
 	connect( mLayerViewer, SIGNAL( visibilityChanged( bool ) ), aViewLayerViewer, SLOT( setChecked( bool ) ) );
 	connect( aViewVdp1LayerViewer, SIGNAL( toggled( bool ) ), mVdp1LayerViewer, SLOT( setVisible( bool ) ) );
 	connect( mVdp1LayerViewer, SIGNAL( visibilityChanged( bool ) ), aViewVdp1LayerViewer, SLOT( setChecked( bool ) ) );
+	connect( aViewRbg0TransformViewer, SIGNAL( toggled( bool ) ), mRbg0TransformViewer, SLOT( setVisible( bool ) ) );
+	connect( mRbg0TransformViewer, SIGNAL( visibilityChanged( bool ) ), aViewRbg0TransformViewer, SLOT( setChecked( bool ) ) );
 	// create hide mouse timer
 	hideMouseTimer = new QTimer();
 	// create mouse cursor timer
@@ -229,6 +232,8 @@ void UIYabause::closeEvent( QCloseEvent* e )
 	vs->setValue( "View/LayerViewerGeometry", mLayerViewer->saveGeometry() );
 	vs->setValue( "View/Vdp1LayerViewerVisible", mVdp1LayerViewer->isVisible() );
 	vs->setValue( "View/Vdp1LayerViewerGeometry", mVdp1LayerViewer->saveGeometry() );
+	vs->setValue( "View/Rbg0TransformViewerVisible", mRbg0TransformViewer->isVisible() );
+	vs->setValue( "View/Rbg0TransformViewerGeometry", mRbg0TransformViewer->saveGeometry() );
 	vs->setValue( "View/LayerMenuVisible", mViewLayer->isTearOffMenuVisible() );
 	if ( QMenu* menu = layerMenuWindow() )
 		vs->setValue( "View/LayerMenuGeometry", menu->saveGeometry() );
@@ -1122,6 +1127,8 @@ void UIYabause::restoreLayerMenu()
 	aViewLayerViewer->setChecked( settings->value( "View/LayerViewerVisible", false ).toBool() );
 	mVdp1LayerViewer->restoreGeometry( settings->value( "View/Vdp1LayerViewerGeometry" ).toByteArray() );
 	aViewVdp1LayerViewer->setChecked( settings->value( "View/Vdp1LayerViewerVisible", false ).toBool() );
+	mRbg0TransformViewer->restoreGeometry( settings->value( "View/Rbg0TransformViewerGeometry" ).toByteArray() );
+	aViewRbg0TransformViewer->setChecked( settings->value( "View/Rbg0TransformViewerVisible", false ).toBool() );
 #if QT_VERSION >= QT_VERSION_CHECK(5, 7, 0)
 	if ( !settings->value( "View/LayerMenuVisible", false ).toBool() )
 		return;

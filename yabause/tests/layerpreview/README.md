@@ -23,3 +23,14 @@ RBG1 fixtures also check its independent display bit (0x20), its parameter-B
 preview while main display switches are off, and simultaneous RBG0/RBG1 images.
 The seven outputs have fixed identities: VDP1, NBG0..3, RBG0, RBG1. Mode changes
 must clear unused outputs instead of placing a rotation background in NBG0.
+
+RBG0 coordinate tracing (`VIDSoftRenderLayerPreviewsWithRbg0`) is checked against
+known source coordinates for identity, translation, negative wrapping, scale,
+90-degree rotation, horizontal/per-line coefficients, 16-bit coefficients,
+rotation modes 0..3, layer windows, screen-over clipping and 704 x 512 pixel
+duplication. Transparent texels retain their geometry; disabled layers clear it,
+and RBG1 cannot overwrite it. Capture preservation checks run with tracing enabled,
+including capture without initializing the software backend. Both the legacy
+image-only entry point and the extended entry point remain covered.
+Combined captures also check that distorted sprite counts and images remain correct
+while RBG0 source coordinates are collected in the same snapshot.
