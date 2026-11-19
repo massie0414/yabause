@@ -61,12 +61,14 @@ static void round_trip(int jit_core, int pending_program)
    s32 left[512], right[512], restored_l[512], restored_r[512];
    int version, size, i, audible = 0;
    u64 program;
+   ScspAudioMonitor monitor;
    FILE *state = tmpfile();
    check(state != NULL, "create temporary state");
    if (!state) return;
    yabsys.use_scsp_dsp_jit = jit_core;
    use_new_scsp = 1;
    setup_voice();
+   ScspSetAudioMonitorEnabled(1);
    samples(137, NULL, NULL);
    if (pending_program) dsp_inf.set_mpro(0, 0); /* Uploaded, not activated yet. */
    program = dsp_inf.get_mpro(0);
@@ -82,6 +84,11 @@ static void round_trip(int jit_core, int pending_program)
    rewind(state);
    check(StateCheckRetrieveHeader(state, "SCSP", &version, &size) == 0, "read state header");
    check(SoundLoadState(state, version, size) >= 0, "load sound state");
+   ScspReadAudioMonitor(&monitor);
+   check(!monitor.pcm_peak && !monitor.fm_peak && !monitor.dsp_peak,
+         "state load clears diagnostic peaks");
+   check(monitor.dsp_enabled && monitor.dsp_jit == jit_core,
+         "monitor reports restored DSP core");
    check(ScspReadWord(0x006) == 256, "voice registers restored");
    check(dsp_inf.get_mpro(0) == program, "DSP program restored");
    check(dsp_inf.get_coef(0) == 0x4000, "DSP coefficient restored");

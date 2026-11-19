@@ -122,6 +122,7 @@ set( yabause_qt_MOC_HEADERS
 	ui/UIVdp1FramebufferViewer.h
 	ui/UIVdp2VramViewer.h
 	ui/UIVdp1VramViewer.h
+	ui/UISoundMonitor.h
 	ui/UISettings.h
 	ui/UIAbout.h
 	ui/UICheats.h
@@ -173,6 +174,7 @@ set( yabause_qt_SOURCES
 	ui/UIVdp1FramebufferViewer.cpp
 	ui/UIVdp2VramViewer.cpp
 	ui/UIVdp1VramViewer.cpp
+	ui/UISoundMonitor.cpp
 	ui/UISettings.cpp
 	ui/UIAbout.cpp
 	ui/UICheats.cpp

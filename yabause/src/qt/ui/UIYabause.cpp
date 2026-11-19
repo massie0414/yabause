@@ -32,6 +32,7 @@
 #include "UIVdp1FramebufferViewer.h"
 #include "UIVdp2VramViewer.h"
 #include "UIVdp1VramViewer.h"
+#include "UISoundMonitor.h"
 #include "UIDebugM68K.h"
 #include "UIDebugSCUDSP.h"
 #include "UIDebugSCSP.h"
@@ -144,6 +145,9 @@ UIYabause::UIYabause( QWidget* parent )
 	mVdp2VramViewer = new UIVdp2VramViewer( mYabauseThread, this );
 	connect( aViewVdp2VramViewer, SIGNAL( toggled( bool ) ), mVdp2VramViewer, SLOT( setVisible( bool ) ) );
 	connect( mVdp2VramViewer, SIGNAL( visibilityChanged( bool ) ), aViewVdp2VramViewer, SLOT( setChecked( bool ) ) );
+	mSoundMonitor = new UISoundMonitor( mYabauseThread, this );
+	connect( aViewSoundMonitor, SIGNAL( toggled( bool ) ), mSoundMonitor, SLOT( setVisible( bool ) ) );
+	connect( mSoundMonitor, SIGNAL( visibilityChanged( bool ) ), aViewSoundMonitor, SLOT( setChecked( bool ) ) );
 	// create hide mouse timer
 	hideMouseTimer = new QTimer();
 	// create mouse cursor timer
@@ -252,6 +256,8 @@ void UIYabause::closeEvent( QCloseEvent* e )
 	vs->setValue( "View/Vdp2VramViewerGeometry", mVdp2VramViewer->saveGeometry() );
 	vs->setValue( "View/Vdp1VramViewerVisible", mVdp1VramViewer->isVisible() );
 	vs->setValue( "View/Vdp1VramViewerGeometry", mVdp1VramViewer->saveGeometry() );
+	vs->setValue( "View/SoundMonitorVisible", mSoundMonitor->isVisible() );
+	vs->setValue( "View/SoundMonitorGeometry", mSoundMonitor->saveGeometry() );
 	vs->setValue( "View/LayerMenuVisible", mViewLayer->isTearOffMenuVisible() );
 	if ( QMenu* menu = layerMenuWindow() )
 		vs->setValue( "View/LayerMenuGeometry", menu->saveGeometry() );
@@ -1153,6 +1159,8 @@ void UIYabause::restoreLayerMenu()
 	aViewVdp2VramViewer->setChecked( settings->value( "View/Vdp2VramViewerVisible", false ).toBool() );
 	mVdp1VramViewer->restoreGeometry( settings->value( "View/Vdp1VramViewerGeometry" ).toByteArray() );
 	aViewVdp1VramViewer->setChecked( settings->value( "View/Vdp1VramViewerVisible", false ).toBool() );
+	mSoundMonitor->restoreGeometry( settings->value( "View/SoundMonitorGeometry" ).toByteArray() );
+	aViewSoundMonitor->setChecked( settings->value( "View/SoundMonitorVisible", false ).toBool() );
 #if QT_VERSION >= QT_VERSION_CHECK(5, 7, 0)
 	if ( !settings->value( "View/LayerMenuVisible", false ).toBool() )
 		return;
