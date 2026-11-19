@@ -118,6 +118,77 @@ static void disabled_lfo(void)
       }
 }
 
+static void write_instruction(unsigned int step, u64 instruction)
+{
+   int word;
+   for (word = 0; word < 4; word++)
+      ScspWriteWord(0x800 + step * 8 + word * 2,
+                    (u16)(instruction >> (48 - word * 16)));
+}
+
+static void madrs_output(int jit_core)
+{
+   /* All 32 MADRS words are independent R/W registers, including 16..31.
+      Check the CPU readback and the registers actually used by the DSP. */
+   int i;
+   union ScspDspInstruction instruction = {0};
+   yabsys.use_scsp_dsp_jit = jit_core;
+   use_new_scsp = 1;
+   ScspReset();
+   for (i = 0; i < 32; i++)
+      ScspWriteWord(0x780 + i * 2, 0x8100 + i * 0x101);
+   for (i = 0; i < 32; i++)
+   {
+      u16 expected = 0x8100 + i * 0x101;
+      u16 actual = ScspReadWord(0x780 + i * 2);
+      u16 dsp_actual = (u16)dsp_inf.get_madrs(i);
+      checks += 2;
+      if (actual != expected || dsp_actual != expected)
+      {
+         if (failures < 12)
+            fprintf(stderr, "FAIL: %s MADRS%d: CPU=%04x DSP=%04x expected=%04x\n",
+                    jit_core ? "JIT" : "interpreter", i, actual, dsp_actual, expected);
+         failures += (actual != expected) + (dsp_actual != expected);
+      }
+   }
+
+   /* Read a distinct sound-RAM location through each MASA selector, then
+      multiply by 0.5 and route EFREG4 through the real stereo mixer.
+      0x0000 and 0x8000 encode +0x400000 and -0x800000 in DSP float format. */
+   ScspWriteWord(0x400, 15);
+   ScspWriteWord(0x700, 0x4000);
+   ScspWriteWord(4 * 32 + 0x16, 7 << 5);
+   T2WriteWord(SoundRam, 0, 0x6000); /* Silence at the unset MADRS address. */
+   for (i = 0; i < 32; i++)
+   {
+      ScspWriteWord(0x780 + i * 2, 0x1000 + i);
+      T2WriteWord(SoundRam, (0x1000 + i) * 2, (i & 1) ? 0x8000 : 0x0000);
+   }
+   instruction.part.iwt = 1;
+   write_instruction(3, instruction.all);
+   instruction.all = 0;
+   instruction.part.xsel = 1;
+   instruction.part.ysel = 1;
+   instruction.part.zero = 1;
+   write_instruction(4, instruction.all);
+   instruction.all = 0;
+   instruction.part.ewt = 1;
+   instruction.part.ewa = 4;
+   write_instruction(5, instruction.all);
+   for (i = 0; i < 32; i++)
+   {
+      int expected = (i & 1) ? -4096 : 2048;
+      instruction.all = 0;
+      instruction.part.table = 1;
+      instruction.part.mrd = 1;
+      instruction.part.masa = i;
+      write_instruction(1, instruction.all);
+      new_scsp_outbuf_pos = 0;
+      new_scsp_run_sample();
+      check_sample(jit_core, 7, 0, i, expected, expected);
+   }
+}
+
 int main(void)
 {
    yabauseinit_struct init = {0};
@@ -127,7 +198,9 @@ int main(void)
    effect_output(0);
    effect_output(1);
    disabled_lfo();
+   madrs_output(0);
+   madrs_output(1);
    YabauseDeInit();
-   printf("SCSP mixing and disabled LFO: %d checks, %d failures\n", checks, failures);
+   printf("SCSP mixing, disabled LFO and MADRS: %d checks, %d failures\n", checks, failures);
    return failures ? 1 : 0;
 }

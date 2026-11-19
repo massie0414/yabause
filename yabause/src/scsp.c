@@ -3980,15 +3980,11 @@ scsp_w_w (u32 a, u16 d)
      u32 address = (a - 0x700) / 2;
      dsp_inf.set_coef(d >> 3, address);//lower 3 bits seem to be discarded
   }
-  else if (a >= 0x780 && a < 0x7A0)
+  else if (a >= 0x780 && a < 0x7C0)
   {
+     /* MADRS is 32 independent words, not 16 words plus a mirror. */
      u32 address = (a - 0x780) / 2;
      dsp_inf.set_madrs(d, address);
-  }
-  else if (a >= 0x7A0 && a < 0x7C0)
-  {
-     //madrs mirror
-     //seems to read only (todo test)
   }
   else if (a >= 0x800 && a < 0xC00)
   {
@@ -4151,15 +4147,9 @@ scsp_r_w (u32 a)
      u32 address = (a - 0x700) / 2;
      return dsp_inf.get_coef(address) << 3;
   }
-  else if (a >= 0x780 && a < 0x7A0)
+  else if (a >= 0x780 && a < 0x7C0)
   {
      u32 address = (a - 0x780) / 2;
-     return dsp_inf.get_madrs(address);
-  }
-  else if (a >= 0x7A0 && a < 0x7C0)
-  {
-     //madrs mirror
-     u32 address = (a - 0x7A0) / 2;
      return dsp_inf.get_madrs(address);
   }
   else if (a >= 0x800 && a < 0xC00)
