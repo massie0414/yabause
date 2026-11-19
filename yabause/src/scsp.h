@@ -87,6 +87,20 @@ extern SoundInterface_struct SNDWave;
 extern u8 *SoundRam;
 extern int use_new_scsp;
 
+/* Read/clear between emulation frames on the emulation thread. These are
+   diagnostic peaks, not saved sound state. PCM/FM measure the loudest slot
+   after envelope/TL and direct/DSP send level, before pan/master volume.
+   FM means MDL != 0; CDDA/EXTS are excluded. Legacy SCSP supplies PCM only. */
+typedef struct
+{
+   u32 pcm_peak, fm_peak, dsp_peak; /* 0..32768 (legacy PCM can exceed this) */
+   int fm_supported;
+   int dsp_enabled, dsp_program_loaded, dsp_jit;
+} ScspAudioMonitor;
+
+void ScspSetAudioMonitorEnabled(int enabled);
+void ScspReadAudioMonitor(ScspAudioMonitor *monitor);
+
 u8 FASTCALL SoundRamReadByte(u32 addr);
 u16 FASTCALL SoundRamReadWord(u32 addr);
 u32 FASTCALL SoundRamReadLong(u32 addr);

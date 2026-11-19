@@ -217,6 +217,7 @@
     <addaction name="aViewRbg0TransformViewer"/>
     <addaction name="aViewVdp2VramViewer"/>
     <addaction name="aViewVdp1VramViewer"/>
+    <addaction name="aViewSoundMonitor"/>
     <addaction name="aViewFullscreen"/>
     <addaction name="aViewLog"/>
    </widget>
@@ -693,6 +694,14 @@
    </property>
    <property name="text">
     <string>VDP2 VRAM Viewer</string>
+   </property>
+  </action>
+  <action name="aViewSoundMonitor">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Sound Monitor</string>
    </property>
   </action>
   <action name="aViewLayerRBG0">

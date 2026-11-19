@@ -124,6 +124,47 @@ s32 new_scsp_outbuf_l[900] = { 0 };
 s32 new_scsp_outbuf_r[900] = { 0 };
 int new_scsp_cycles = 0;
 
+static int audio_monitor_enabled;
+static u32 audio_monitor_pcm, audio_monitor_fm, audio_monitor_dsp;
+
+static void audio_monitor_clear(void)
+{
+   audio_monitor_pcm = audio_monitor_fm = audio_monitor_dsp = 0;
+}
+
+static void audio_monitor_peak(u32 *peak, s32 sample)
+{
+   u32 magnitude = sample < 0 ? (u32)(-(s64)sample) : (u32)sample;
+   if (magnitude > *peak) *peak = magnitude;
+}
+
+void ScspSetAudioMonitorEnabled(int enabled)
+{
+   audio_monitor_enabled = enabled;
+   audio_monitor_clear();
+}
+
+void ScspReadAudioMonitor(ScspAudioMonitor *monitor)
+{
+   int i;
+   memset(monitor, 0, sizeof(*monitor));
+   monitor->pcm_peak = audio_monitor_pcm;
+   monitor->fm_peak = audio_monitor_fm;
+   monitor->dsp_peak = audio_monitor_dsp;
+   monitor->fm_supported = monitor->dsp_enabled = use_new_scsp;
+#ifdef HAVE_PLAY_JIT
+   monitor->dsp_jit = use_new_scsp && yabsys.use_scsp_dsp_jit;
+#endif
+   if (use_new_scsp && dsp_inf.get_mpro)
+      for (i = 0; i < 128; ++i)
+         if (dsp_inf.get_mpro(i))
+         {
+            monitor->dsp_program_loaded = 1;
+            break;
+         }
+   audio_monitor_clear();
+}
+
 enum EnvelopeStates
 {
    ATTACK,
@@ -1358,6 +1399,15 @@ void generate_sample(struct Scsp * s, int rbp, int rbl, s16 * out_l, s16* out_r,
 
          int pan_val_l = 0, pan_val_r = 0;
 
+         if (audio_monitor_enabled)
+         {
+            struct Slot *slot = &s->slots[last_step];
+            u32 *peak = slot->regs.mdl ? &audio_monitor_fm : &audio_monitor_pcm;
+            /* Zero send level is off, even when signed shifting rounds to -1. */
+            if (slot->regs.disdl) audio_monitor_peak(peak, disdl_applied);
+            if (slot->regs.imxl) audio_monitor_peak(peak, mixs_input);
+         }
+
          get_panning(s->slots[last_step].regs.dipan, &pan_val_l, &pan_val_r);
 
          *out_l = *out_l + ((disdl_applied >> pan_val_l) >> 2);
@@ -1384,6 +1434,9 @@ void generate_sample(struct Scsp * s, int rbp, int rbl, s16 * out_l, s16* out_r,
       // unsigned bit pattern; restore its sign before attenuating it.
       efsdl_applied = (s16)dsp_inf.get_effect_out(i) >> efsdl;
 
+      if (audio_monitor_enabled && i < 16 && s->slots[i].regs.efsdl)
+         audio_monitor_peak(&audio_monitor_dsp, efsdl_applied);
+
       get_panning(s->slots[i].regs.efpan, &pan_val_l, &pan_val_r);
 
       panned_l = (efsdl_applied >> pan_val_l) >> 2;
@@ -1402,6 +1455,7 @@ void generate_sample(struct Scsp * s, int rbp, int rbl, s16 * out_l, s16* out_r,
 void new_scsp_reset(struct Scsp* s)
 {
    int slot_num;
+   audio_monitor_clear();
    memset(s, 0, sizeof(struct Scsp));
 
    for (slot_num = 0; slot_num < 32; slot_num++)
@@ -1429,6 +1483,7 @@ void new_scsp_reset(struct Scsp* s)
 
 void scsp_set_use_new(int which)
 {
+   audio_monitor_clear();
    if (which && !use_new_scsp)
       new_scsp_reset(&new_scsp);
 
@@ -3662,6 +3717,17 @@ scsp_update (s32 *bufL, s32 *bufR, u32 len)
       [(slot->dislr == 31) ? 0 : 1](slot);
    }
 
+   /* Legacy SCSP has no FM/DSP synthesis. Capture its PCM mix before CDDA. */
+   if (audio_monitor_enabled)
+   {
+      u32 i;
+      for (i = 0; i < len; ++i)
+      {
+         audio_monitor_peak(&audio_monitor_pcm, bufL[i]);
+         audio_monitor_peak(&audio_monitor_pcm, bufR[i]);
+      }
+   }
+
    if (cdda_out_left > 0)
    {
       if (len > cdda_out_left / 4)
@@ -4248,6 +4314,7 @@ void
 scsp_reset (void)
 {
   slot_t *slot;
+  audio_monitor_clear();
 
   memset(scsp_reg, 0, 0x1000);
 
@@ -5991,6 +6058,7 @@ SoundLoadState (FILE *fp, int version, int size)
   }
   scspsoundgenpos = scspsoundoutleft = 0;
   if (SNDCore) SNDCore->Reset();
+  audio_monitor_clear();
 
   return size;
 }

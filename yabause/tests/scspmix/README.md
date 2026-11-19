@@ -42,15 +42,14 @@ pitch modulation and ALFOS=0 still adds amplitude modulation. In Grandia this
 caused occasional skipped/repeated residual samples, independently of the
 CD/SCU transfer bugs. Zero sensitivity means no modulation in
 [SEGA's SCSP manual, table 4.17](https://www.infochunk.com/saturn/segahtml_en/hard/scsp/hon/p04_26.htm).
-The mixing and disabled-LFO fixtures have 66,166 checks in total.
+The mixing and disabled-LFO fixtures exercise both DSP backends.
 
 The MADRS fixture adds 192 checks across the interpreter and JIT. It writes
 distinct values to all 32 address registers through SCSP MMIO and checks both
 CPU readback and the DSP's register values. A microprogram then reads known
 positive/negative samples from sound RAM through every MASA selector and checks
 the stereo mixer output. The original code fails 96 of these checks: writes to
-MADRS16..31 are discarded and reads incorrectly alias MADRS0..15. The complete
-suite now has 66,358 checks.
+MADRS16..31 are discarded and reads incorrectly alias MADRS0..15.
 
 MADRS occupies 32 words at 0x780..0x7BF, as shown in figure 4.5 of
 [SEGA's SCSP user's manual](https://antime.kapsi.fi/sega/files/ST-077-R2-052594.pdf).
@@ -66,3 +65,11 @@ switching, stopping and HALL-to-CAVE switching pass the sample's PCM assertions;
 the 27.3-second captures contain no clipped output samples. Logs, captures and
 dry/wet WAV pairs are under `build/ss-dsp-probe/` (ignored by Git). This checks
 emulator PCM output, not a listening comparison or equivalence to real hardware.
+
+The audio monitor checks additionally cover PCM/FM classification by MDL,
+envelope/TL and send attenuation, DSP-only sends, signed DSP effect peaks on
+both cores, absent DSP programs, read-and-clear intervals, reset, hidden-panel
+collection, CD audio exclusion and legacy PCM fallback. The existing stereo
+sample assertions run with monitoring enabled to check that it does not change
+the generated audio. State-load peak clearing is covered by `tests/scspstate`.
+The complete suite now has 67,629 checks.

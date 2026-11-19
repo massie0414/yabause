@@ -1,5 +1,6 @@
 /* Exercise signed DSP output through the actual SCSP mixer, without a game. */
 #include <stdio.h>
+#include <stdlib.h>
 #include "yui.h"
 #include "peripheral.h"
 #include "cs0.h"
@@ -20,6 +21,16 @@ extern void new_scsp_run_sample(void);
 extern int new_scsp_outbuf_pos;
 extern s32 new_scsp_outbuf_l[900], new_scsp_outbuf_r[900];
 static int failures, checks;
+
+static void check_monitor(int condition, const char *message)
+{
+   checks++;
+   if (!condition)
+   {
+      fprintf(stderr, "FAIL: audio monitor: %s\n", message);
+      failures++;
+   }
+}
 
 static void check_sample(int jit_core, int level, int pan, int input,
                          int expected_l, int expected_r)
@@ -45,6 +56,7 @@ static void effect_output(int jit_core)
    yabsys.use_scsp_dsp_jit = jit_core;
    use_new_scsp = 1;
    ScspReset();
+   ScspSetAudioMonitorEnabled(1);
    ScspWriteWord(0x400, 15);
    /* MIXS0 -> multiply by 0.5 -> EFREG4. No RAM or feedback effects. */
    dsp_inf.set_coef(0x800, 0);
@@ -72,7 +84,104 @@ static void effect_output(int jit_core)
             effect = (inputs[n] / 2) >> (7 - level);
             check_sample(jit_core, level, pans[p], inputs[n],
                          (effect >> pan_l) >> 2, (effect >> pan_r) >> 2);
+            {
+               ScspAudioMonitor monitor;
+               ScspReadAudioMonitor(&monitor);
+               check_monitor(monitor.dsp_enabled && monitor.dsp_program_loaded &&
+                             monitor.dsp_jit == jit_core, "DSP program/core status");
+               check_monitor(monitor.dsp_peak == (u32)abs(effect) &&
+                             monitor.pcm_peak == 0 && monitor.fm_peak == 0,
+                             "signed effect peak excludes PCM/FM");
+            }
          }
+}
+
+static void monitor_samples(int count)
+{
+   while (count--)
+   {
+      new_scsp_outbuf_pos = 0;
+      new_scsp_run_sample();
+   }
+}
+
+static void sound_monitor(void)
+{
+   int i;
+   ScspAudioMonitor monitor;
+   s32 left[256] = { 0 }, right[256] = { 0 };
+   extern void scsp_update(s32 *, s32 *, u32);
+   use_new_scsp = 1;
+   ScspReset();
+   ScspSetAudioMonitorEnabled(1);
+   monitor_samples(64);
+   ScspReadAudioMonitor(&monitor);
+   check_monitor(monitor.pcm_peak == 0 && monitor.fm_peak == 0 && monitor.dsp_peak == 0 &&
+                 monitor.dsp_enabled && !monitor.dsp_program_loaded, "reset is silent, DSP has no program");
+   ScspWriteWord(0x400, 15);
+   for (i = 0; i < 8; ++i) T2WriteWord(SoundRam, 0x1000 + i * 2, -4096);
+   ScspWriteWord(0x02, 0x1000);
+   ScspWriteWord(0x06, 8);
+   ScspWriteWord(0x08, 31);
+   ScspWriteWord(0x16, 7 << 13);
+   ScspWriteWord(0x00, 0x1820);
+   monitor_samples(64);
+   ScspReadAudioMonitor(&monitor);
+   check_monitor(monitor.pcm_peak == 4096 && monitor.fm_peak == 0, "PCM negative peak");
+   ScspReadAudioMonitor(&monitor);
+   check_monitor(monitor.pcm_peak == 0, "read consumes interval peaks");
+   ScspWriteWord(0x0e, 1 << 12);
+   monitor_samples(64);
+   ScspReadAudioMonitor(&monitor);
+   check_monitor(monitor.pcm_peak == 0 && monitor.fm_peak == 4096, "MDL routes peak to FM");
+   ScspWriteWord(0x16, 0);
+   monitor_samples(64);
+   ScspReadAudioMonitor(&monitor);
+   check_monitor(monitor.pcm_peak == 0 && monitor.fm_peak == 0, "unrouted negative samples do not light meters");
+   ScspWriteWord(0x14, 6);
+   monitor_samples(64);
+   ScspReadAudioMonitor(&monitor);
+   check_monitor(monitor.fm_peak == 2048 && monitor.dsp_peak == 0, "DSP-only source send is visible without effect output");
+   ScspWriteWord(0x0c, 64);
+   monitor_samples(64);
+   ScspReadAudioMonitor(&monitor);
+   check_monitor(monitor.fm_peak == 128, "total level attenuation is reflected");
+   ScspSetAudioMonitorEnabled(0);
+   monitor_samples(64);
+   ScspReadAudioMonitor(&monitor);
+   check_monitor(!monitor.pcm_peak && !monitor.fm_peak && !monitor.dsp_peak, "hidden monitor does not accumulate");
+   ScspSetAudioMonitorEnabled(1);
+   monitor_samples(64);
+   ScspReset();
+   ScspReadAudioMonitor(&monitor);
+   check_monitor(!monitor.fm_peak, "reset clears pending peaks");
+   /* EXTS0 is CDDA, not a DSP effect return or a PCM slot. */
+   ScspWriteWord(16 * 32 + 0x16, 7 << 5);
+   {
+      u8 cd[4] = { 0, 0x40, 0, 0x40 };
+      ScspReceiveMpeg(cd, sizeof(cd));
+   }
+   monitor_samples(1);
+   ScspReadAudioMonitor(&monitor);
+   check_monitor(!monitor.pcm_peak && !monitor.fm_peak && !monitor.dsp_peak, "CD audio is excluded");
+   scsp_set_use_new(0);
+   ScspReset();
+   ScspWriteWord(0x400, 15);
+   ScspWriteWord(0x02, 0x1000);
+   ScspWriteWord(0x06, 8);
+   ScspWriteWord(0x08, 31);
+   ScspWriteWord(0x0a, 0);
+   ScspWriteWord(0x0c, 0);
+   ScspWriteWord(0x10, 0);
+   ScspWriteWord(0x12, 0);
+   ScspWriteWord(0x16, 7 << 13);
+   ScspWriteWord(0x00, 0x1820);
+   scsp_update(left, right, 256);
+   ScspReadAudioMonitor(&monitor);
+   check_monitor(monitor.pcm_peak > 0 && !monitor.fm_supported && !monitor.dsp_enabled &&
+                 !monitor.dsp_program_loaded, "legacy PCM works, FM/DSP unavailable");
+   ScspSetAudioMonitorEnabled(0);
+   scsp_set_use_new(1);
 }
 
 static void disabled_lfo(void)
@@ -200,7 +309,8 @@ int main(void)
    disabled_lfo();
    madrs_output(0);
    madrs_output(1);
+   sound_monitor();
    YabauseDeInit();
-   printf("SCSP mixing, disabled LFO and MADRS: %d checks, %d failures\n", checks, failures);
+   printf("SCSP mixing, disabled LFO, MADRS and audio monitor: %d checks, %d failures\n", checks, failures);
    return failures ? 1 : 0;
 }
