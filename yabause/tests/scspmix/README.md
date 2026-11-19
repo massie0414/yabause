@@ -1,4 +1,4 @@
-# SCSP mixing and disabled LFO regression
+# SCSP mixing, disabled LFO and MADRS regression
 
 Build the main project with Musashi and Play JIT enabled first (the VS2026
 configuration does this). No BIOS or game image is required.
@@ -42,4 +42,27 @@ pitch modulation and ALFOS=0 still adds amplitude modulation. In Grandia this
 caused occasional skipped/repeated residual samples, independently of the
 CD/SCU transfer bugs. Zero sensitivity means no modulation in
 [SEGA's SCSP manual, table 4.17](https://www.infochunk.com/saturn/segahtml_en/hard/scsp/hon/p04_26.htm).
-The suite now has 66,166 checks in total.
+The mixing and disabled-LFO fixtures have 66,166 checks in total.
+
+The MADRS fixture adds 192 checks across the interpreter and JIT. It writes
+distinct values to all 32 address registers through SCSP MMIO and checks both
+CPU readback and the DSP's register values. A microprogram then reads known
+positive/negative samples from sound RAM through every MASA selector and checks
+the stereo mixer output. The original code fails 96 of these checks: writes to
+MADRS16..31 are discarded and reads incorrectly alias MADRS0..15. The complete
+suite now has 66,358 checks.
+
+MADRS occupies 32 words at 0x780..0x7BF, as shown in figure 4.5 of
+[SEGA's SCSP user's manual](https://antime.kapsi.fi/sega/files/ST-077-R2-052594.pdf).
+Both DSP backends already store all 32 registers; the fix corrects the shared
+word-access address decoder.
+
+Integration verification used the actual `C:\apps\SS_DSP\game.cue` image and its
+pad-driven footstep probe, linked directly to this checkout's Release library
+without the sample's temporary SCSP patch. Before the fix, both backends produce
+zero reverb-tail RMS for footstep 1. After the fix, the interpreter/JIT tail RMS
+is 19.20/15.72 for footstep 1 and 82.92/73.24 for footstep 2. Dry playback, B-to-A
+switching, stopping and HALL-to-CAVE switching pass the sample's PCM assertions;
+the 27.3-second captures contain no clipped output samples. Logs, captures and
+dry/wet WAV pairs are under `build/ss-dsp-probe/` (ignored by Git). This checks
+emulator PCM output, not a listening comparison or equivalence to real hardware.
