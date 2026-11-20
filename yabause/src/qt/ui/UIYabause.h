@@ -37,6 +37,7 @@ class UILayerViewer;
 class UIVdp1FramebufferViewer;
 class UIVdp2VramViewer;
 class UIVdp1VramViewer;
+class UIVdpPaletteViewer;
 class UISoundMonitor;
 
 enum BARDISPLAY
@@ -95,6 +96,8 @@ protected:
 	UILayerViewer* mRbg0TransformViewer;
 	UIVdp2VramViewer* mVdp2VramViewer;
 	UIVdp1VramViewer* mVdp1VramViewer;
+	UIVdpPaletteViewer* mVdp1PaletteViewer;
+	UIVdpPaletteViewer* mVdp2PaletteViewer;
 	UISoundMonitor* mSoundMonitor;
 	QTextEdit* teLog;
 	bool mCanLog;
