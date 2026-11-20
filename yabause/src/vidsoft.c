@@ -173,6 +173,8 @@ int bad_cycle_setting[6] = { 0 };
  * have finished. Bypass Titan entirely so the live compositor is untouched. */
 static u32 *layer_preview_output = NULL;
 static VIDSoftRbg0Preview *rbg0_preview = NULL;
+static u8 *sprite_outline_mask = NULL;
+static u32 *sprite_outline_output = NULL;
 
 static INLINE void VidsoftRecordRbg0(vdp2draw_struct *info, int i, int j,
    int x, int y, int mapx, int mapy, s32 kx, s32 ky, int parameter, int xscale)
@@ -3385,6 +3387,27 @@ void VIDSoftVdp1ScaledSpriteDraw(u8* ram, Vdp1*regs, u8 * back_framebuffer){
    drawQuad(topLeftx, topLefty, bottomLeftx, bottomLefty, topRightx, topRighty, bottomRightx, bottomRighty, ram, regs, &cmd, back_framebuffer);
 }
 
+/* Separate geometry mask: later draws and transparent texels must not hide
+ * an executed sprite's boundary. Never write into an emulated framebuffer. */
+static void VidsoftOutlineEdge(int x, int y, int endx, int endy,
+   Vdp1 *regs, vdp1cmd_struct *cmd)
+{
+   int dx = abs(endx - x), dy = -abs(endy - y);
+   int sx = x < endx ? 1 : -1, sy = y < endy ? 1 : -1;
+   int error = dx + dy;
+   for (;;)
+   {
+      int twice_error;
+      if (x >= 0 && x < vdp1width && y >= 0 && y / vdp1interlace < vdp1height
+         && !CheckDil(y, regs) && !IsClipped(x, y, regs, cmd))
+         sprite_outline_mask[(y / vdp1interlace) * vdp1width + x] = 1;
+      if (x == endx && y == endy) break;
+      twice_error = 2 * error;
+      if (twice_error >= dy) { error += dy; x += sx; }
+      if (twice_error <= dx) { error += dx; y += sy; }
+   }
+}
+
 void VIDSoftVdp1DistortedSpriteDraw(u8* ram, Vdp1*regs, u8 * back_framebuffer) {
 
 	s32 xa,ya,xb,yb,xc,yc,xd,yd;
@@ -3403,6 +3426,15 @@ void VIDSoftVdp1DistortedSpriteDraw(u8* ram, Vdp1*regs, u8 * back_framebuffer) {
 
     xd = (s32)(cmd.CMDXD + regs->localX);
     yd = (s32)(cmd.CMDYD + regs->localY);
+
+    /* Polygons share this rasterizer but are not distorted sprites. */
+    if (sprite_outline_mask && ((cmd.CMDCTRL & 15) == 2 || (cmd.CMDCTRL & 15) == 3))
+    {
+       VidsoftOutlineEdge(xa, ya, xb, yb, regs, &cmd);
+       VidsoftOutlineEdge(xb, yb, xc, yc, regs, &cmd);
+       VidsoftOutlineEdge(xc, yc, xd, yd, regs, &cmd);
+       VidsoftOutlineEdge(xd, yd, xa, ya, regs, &cmd);
+    }
 
     drawQuad(xa, ya, xd, yd, xb, yb, xc, yc, ram, regs, &cmd, back_framebuffer);
 }
@@ -3746,6 +3778,14 @@ void VidsoftDrawSprite(Vdp2 * vdp2_regs, u8 * spr_window_mask, u8* vdp1_front_fr
                }
                else
                   x = i;
+            }
+
+            if (sprite_outline_output && x >= 0 && x < vdp1width
+               && y >= 0 && y < vdp1height && sprite_outline_mask[y * vdp1width + x])
+            {
+               int row, scale = vdp2_interlace ? 2 : 1;
+               for (row = 0; row < scale; row++)
+                  sprite_outline_output[(output_y * scale + row) * vdp2width + i] = 0xFF00FF00;
             }
 
             if (vdp1pixelsize == 2)
@@ -4283,6 +4323,14 @@ int VIDSoftRenderLayerPreviews(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT], int *wi
 int VIDSoftRenderLayerPreviewsWithRbg0(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT],
    int *width, int *height, u32 *distorted_sprite_count, VIDSoftRbg0Preview *rotation)
 {
+   return VIDSoftRenderLayerPreviewsWithDebug(layers, width, height,
+      distorted_sprite_count, rotation, NULL);
+}
+
+int VIDSoftRenderLayerPreviewsWithDebug(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT],
+   int *width, int *height, u32 *distorted_sprite_count, VIDSoftRbg0Preview *rotation,
+   u32 *sprite_outlines)
+{
    int i;
    int saved_dimensions[10];
    int saved_vdp1_toggle, saved_vdp2_toggle;
@@ -4292,6 +4340,7 @@ int VIDSoftRenderLayerPreviewsWithRbg0(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT],
    Vdp1 regs;
    VideoInterface_struct *saved_core = VIDCore;
    if (distorted_sprite_count) *distorted_sprite_count = 0;
+   if (sprite_outlines) memset(sprite_outlines, 0, 704 * 512 * sizeof(u32));
    if (!layers || !width || !height || !Vdp1Regs || !Vdp2Regs ||
       !Vdp1Ram || !Vdp2Ram || !Vdp2ColorRam || layer_preview_output)
       return -1;
@@ -4299,7 +4348,7 @@ int VIDSoftRenderLayerPreviewsWithRbg0(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT],
       if (!layers[i]) return -1;
    if (rotation && !rotation->samples) return -1;
 
-   scratch = (u8 *)calloc(1, 0x40000 + sizeof(sprite_window_mask));
+   scratch = (u8 *)calloc(1, 0x40000 + sizeof(sprite_window_mask) + (sprite_outlines ? 0x40000 : 0));
    if (!scratch) return -1;
 
    /* Qt invokes this between frames, never from YuiSwapBuffers. The VDP1
@@ -4353,12 +4402,16 @@ int VIDSoftRenderLayerPreviewsWithRbg0(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT],
       regs = *Vdp1Regs;
       regs.addr = 0;
       VidsoftVdp1SetDimensions(&regs);
+      sprite_outline_mask = sprite_outlines ? scratch + 0x40000 + sizeof(sprite_window_mask) : NULL;
       VIDCore = &VIDSoft;
       sprite_count = Vdp1DrawCommands(Vdp1Ram, &regs, scratch);
       VIDCore = saved_core;
       layer_preview_output = layers[0];
+      sprite_outline_output = sprite_outlines;
       VidsoftDrawSprite(Vdp2Regs, sprite_window_mask, scratch,
          Vdp2Ram, &regs, Vdp2Lines, Vdp2ColorRam);
+      sprite_outline_output = NULL;
+      sprite_outline_mask = NULL;
       for (i = 0; i < 5; i++)
       {
          layer_preview_output = layers[i + 1];

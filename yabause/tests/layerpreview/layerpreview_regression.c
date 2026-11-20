@@ -26,6 +26,7 @@ static u32 images[VIDSOFT_LAYER_PREVIEW_COUNT][704 * 512 + 1];
 static u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT] = { images[0], images[1], images[2], images[3], images[4], images[5], images[6] };
 static VIDSoftRbg0Sample samples[704 * 512 + 1];
 static VIDSoftRbg0Preview rotation = { samples };
+static u32 outlines[704 * 512 + 1];
 
 static void check(int condition, const char *message)
 {
@@ -57,7 +58,7 @@ static void capture_and_check(int software)
    Vdp1External.manualerase = 1;
    TitanGetResolution(&titan_w, &titan_h);
    for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++) images[i][704 * 512] = 0x12345678;
-   check(VIDSoftRenderLayerPreviewsWithRbg0(layers, &width, &height, &sprite_count, &rotation) == 0, "capture succeeds with coordinate tracing");
+   check(VIDSoftRenderLayerPreviewsWithDebug(layers, &width, &height, &sprite_count, &rotation, outlines) == 0, "capture succeeds with coordinate and outline tracing");
    check(sprite_count == 0, "normal sprites do not count as distorted sprites");
    check(width == 320 && height == 224, "native preview dimensions");
    for (i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; i++)
@@ -143,6 +144,105 @@ static void check_distorted_sprites(void)
    sprite_count = 99;
    check(VIDSoftRenderLayerPreviews(NULL, &w, &h, &sprite_count) == -1 && sprite_count == 0,
       "unavailable capture clears stale counts");
+   setup_layer_scene();
+}
+
+static void capture_outlines(int *w, int *h)
+{
+   outlines[704 * 512] = 0x12345678;
+   check(VIDSoftRenderLayerPreviewsWithDebug(layers, w, h, NULL, &rotation, outlines) == 0, "outline capture");
+   check(outlines[704 * 512] == 0x12345678, "outline buffer bounds");
+}
+
+static void check_outlines(void)
+{
+   int i, w, h;
+   const u16 excluded[] = { 0, 1, 4, 5, 6, 0x4002, 0x8002 };
+   const int xy[] = { 16, 16, 32, 24, 24, 40, 8, 32 };
+   setup_layer_scene();
+   T1WriteWord(Vdp1Ram, 0, 2);
+   for (i = 0; i < 8; i++) T1WriteWord(Vdp1Ram, 12 + 2 * i, xy[i]);
+   capture_outlines(&w, &h);
+   check(outlines[16 * w + 16] == 0xFF00FF00 && outlines[20 * w + 24] == 0xFF00FF00
+      && outlines[32 * w + 28] == 0xFF00FF00 && outlines[36 * w + 16] == 0xFF00FF00
+      && outlines[24 * w + 12] == 0xFF00FF00, "all four slanted edges follow vertices, not a bounding box");
+   check(outlines[28 * w + 20] == 0 && outlines[16 * w + 32] == 0, "outline leaves interior and bounding-box corners empty");
+   check(images[0][28 * w + 20] == 0xFFF800F8 && samples[30 * w + 20].parameter == 1,
+      "outlines preserve sprite image and simultaneous RBG0 tracing");
+   T1WriteWord(Vdp1Ram, 0, 3);
+   capture_outlines(&w, &h);
+   check(outlines[16 * w + 16] == 0xFF00FF00, "type 3 receives an outline");
+   for (i = 0; i < sizeof(excluded) / sizeof(excluded[0]); i++)
+   {
+      int j, nonzero = 0;
+      T1WriteWord(Vdp1Ram, 0, excluded[i]);
+      capture_outlines(&w, &h);
+      for (j = 0; j < w * h; j++) if (outlines[j]) nonzero++;
+      check(nonzero == 0, "other primitives, skipped and end commands have no outline");
+   }
+   T1WriteWord(Vdp1Ram, 0, 2);
+   memset(Vdp1Ram + 0x800, 0, 128);
+   capture_outlines(&w, &h);
+   check(images[0][16 * w + 16] == 0 && outlines[16 * w + 16] == 0xFF00FF00,
+      "transparent texture still has an outline");
+   Vdp2Regs->PRISA = 0;
+   capture_outlines(&w, &h);
+   check(outlines[16 * w + 16] == 0xFF00FF00, "priority zero does not hide geometry");
+   Vdp1Regs->systemclipX2 = 24;
+   capture_outlines(&w, &h);
+   check(outlines[24 * w + 32] == 0 && outlines[16 * w + 16] == 0xFF00FF00, "system clip applies to edges");
+   Vdp1Regs->systemclipX2 = 511;
+   Vdp1Regs->userclipX1 = 20; Vdp1Regs->userclipX2 = 31;
+   T1WriteWord(Vdp1Ram, 4, 0x4A8);
+   capture_outlines(&w, &h);
+   check(outlines[16 * w + 16] == 0 && outlines[20 * w + 24] == 0xFF00FF00, "inside user clipping");
+   T1WriteWord(Vdp1Ram, 4, 0x6A8);
+   capture_outlines(&w, &h);
+   check(outlines[16 * w + 16] == 0xFF00FF00 && outlines[20 * w + 24] == 0, "outside user clipping");
+   T1WriteWord(Vdp1Ram, 4, 0xA8);
+
+   /* The same subroutine is drawn twice with different local coordinates. */
+   memcpy(Vdp1Ram + 0x100, Vdp1Ram, 32);
+   T1WriteWord(Vdp1Ram, 0x100, 0x3002);
+   T1WriteWord(Vdp1Ram, 0, 0x200A); T1WriteWord(Vdp1Ram, 2, 0x20);
+   T1WriteWord(Vdp1Ram, 12, (u16)-8); T1WriteWord(Vdp1Ram, 14, 4);
+   memcpy(Vdp1Ram + 0x20, Vdp1Ram, 32);
+   T1WriteWord(Vdp1Ram, 0x2C, 40); T1WriteWord(Vdp1Ram, 0x2E, 8);
+   T1WriteWord(Vdp1Ram, 0x40, 0x8000);
+   capture_outlines(&w, &h);
+   check(outlines[20 * w + 8] == 0xFF00FF00 && outlines[24 * w + 56] == 0xFF00FF00
+      && outlines[16 * w + 16] == 0, "CALL/RETURN outlines use each execution's signed local origin");
+
+   memcpy(Vdp1Ram, Vdp1Ram + 0x100, 32);
+   T1WriteWord(Vdp1Ram, 0, 2); T1WriteWord(Vdp1Ram, 0x20, 0x8000);
+   Vdp2Regs->TVMD = 0x80E3;
+   capture_outlines(&w, &h);
+   check(w == 704 && h == 512 && outlines[32 * w + 32] == 0xFF00FF00
+      && outlines[33 * w + 33] == 0xFF00FF00, "high-resolution interlace doubles outline pixels with the image");
+   Vdp1Regs->FBCR = 8;
+   capture_outlines(&w, &h);
+   check(outlines[16 * w + 32] == 0xFF00FF00 && outlines[17 * w + 33] == 0xFF00FF00,
+      "VDP1 interlaced drawing uses framebuffer row coordinates");
+   Vdp1Regs->FBCR = 0;
+   Vdp1Regs->TVMR = 1;
+   Vdp2Regs->TVMD = 0x8000;
+   capture_outlines(&w, &h);
+   check(outlines[16 * w + 8] == 0xFF00FF00, "8-bit high-resolution framebuffer uses half-width readout");
+   Vdp2Regs->TVMD = 0x8002;
+   capture_outlines(&w, &h);
+   check(outlines[16 * w + 16] == 0xFF00FF00, "matching high-resolution modes use one-to-one readout");
+   Vdp1Regs->TVMR = 2;
+   Vdp2Regs->TVMD = 0x8000;
+   T1WriteLong(Vdp2Ram, 0x70000, 4 << 16);
+   capture_outlines(&w, &h);
+   check(outlines[16 * w + 12] == 0xFF00FF00, "framebuffer rotation readout also transforms outlines");
+
+   Vdp2Regs->TVMD = 0;
+   capture_outlines(&w, &h);
+   check(outlines[16 * w + 12] == 0, "display off clears old edges");
+   outlines[0] = 1;
+   check(VIDSoftRenderLayerPreviewsWithDebug(NULL, &w, &h, NULL, NULL, outlines) == -1
+      && outlines[0] == 0, "unavailable capture clears stale outlines");
    setup_layer_scene();
 }
 
@@ -407,6 +507,7 @@ int main(void)
    check(VIDSoftGetVdp1Framebuffer(0, images[0], NULL, &w, &h, &size) == -1,
       "live framebuffer unavailable before software initialization");
    check_distorted_sprites();
+   check_outlines();
    VideoUseGL = 0;
    check(VideoChangeCore(VIDCORE_SOFT) == 0, "initialize software renderer without GL");
    setup_layer_scene();
@@ -421,6 +522,7 @@ int main(void)
    TitanRender(after);
    check(!memcmp(before, after, 704 * 512 * sizeof(pixel_t)), "live compositor pixels preserved");
    check_distorted_sprites();
+   check_outlines();
    check_rbg1(after);
    check_framebuffers();
    check_rotation();
@@ -436,6 +538,7 @@ int main(void)
          images[0][20 * w + 20] == 0xFFF800F8, "live snapshot waits for VDP1 draw worker");
       check(VIDSoftRenderLayerPreviews(layers, &w, &h, NULL) == 0, "capture waits for active renderer workers");
       check(VIDSoftRenderLayerPreviewsWithRbg0(layers, &w, &h, NULL, &rotation) == 0, "coordinate capture waits for active renderer workers");
+      check(VIDSoftRenderLayerPreviewsWithDebug(layers, &w, &h, NULL, &rotation, outlines) == 0, "coordinate and outline capture waits for active renderer workers");
    }
    VIDSoftSetVdp1ThreadEnable(0);
    VIDSoftSetNumLayerThreads(0);

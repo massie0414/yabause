@@ -129,6 +129,9 @@ UIYabause::UIYabause( QWidget* parent )
 	UILayerPreviewSource* layerPreviews = new UILayerPreviewSource( mYabauseThread, this );
 	mLayerViewer = new UILayerViewer( layerPreviews, UILayerViewer::VDP2, this );
 	mVdp1LayerViewer = new UILayerViewer( layerPreviews, UILayerViewer::VDP1, this );
+	mVdp1OutlineViewer = new UILayerViewer( layerPreviews, UILayerViewer::VDP1Outlines, this );
+	connect( aViewVdp1OutlineViewer, SIGNAL( toggled( bool ) ), mVdp1OutlineViewer, SLOT( setVisible( bool ) ) );
+	connect( mVdp1OutlineViewer, SIGNAL( visibilityChanged( bool ) ), aViewVdp1OutlineViewer, SLOT( setChecked( bool ) ) );
 	mRbg0TransformViewer = new UILayerViewer( layerPreviews, UILayerViewer::RBG0Transform, this );
 	mVdp1VramViewer = new UIVdp1VramViewer( mYabauseThread, this );
 	connect( aViewVdp1VramViewer, SIGNAL( toggled( bool ) ), mVdp1VramViewer, SLOT( setVisible( bool ) ) );
@@ -250,6 +253,8 @@ void UIYabause::closeEvent( QCloseEvent* e )
 	vs->setValue( "View/Vdp1LayerViewerGeometry", mVdp1LayerViewer->saveGeometry() );
 	vs->setValue( "View/Vdp1FramebufferViewerVisible", mVdp1FramebufferViewer->isVisible() );
 	vs->setValue( "View/Vdp1FramebufferViewerGeometry", mVdp1FramebufferViewer->saveGeometry() );
+	vs->setValue( "View/Vdp1OutlineViewerVisible", mVdp1OutlineViewer->isVisible() );
+	vs->setValue( "View/Vdp1OutlineViewerGeometry", mVdp1OutlineViewer->saveGeometry() );
 	vs->setValue( "View/Rbg0TransformViewerVisible", mRbg0TransformViewer->isVisible() );
 	vs->setValue( "View/Rbg0TransformViewerGeometry", mRbg0TransformViewer->saveGeometry() );
 	vs->setValue( "View/Vdp2VramViewerVisible", mVdp2VramViewer->isVisible() );
@@ -1153,6 +1158,8 @@ void UIYabause::restoreLayerMenu()
 	aViewVdp1LayerViewer->setChecked( settings->value( "View/Vdp1LayerViewerVisible", false ).toBool() );
 	mVdp1FramebufferViewer->restoreGeometry( settings->value( "View/Vdp1FramebufferViewerGeometry" ).toByteArray() );
 	aViewVdp1FramebufferViewer->setChecked( settings->value( "View/Vdp1FramebufferViewerVisible", false ).toBool() );
+	mVdp1OutlineViewer->restoreGeometry( settings->value( "View/Vdp1OutlineViewerGeometry" ).toByteArray() );
+	aViewVdp1OutlineViewer->setChecked( settings->value( "View/Vdp1OutlineViewerVisible", false ).toBool() );
 	mRbg0TransformViewer->restoreGeometry( settings->value( "View/Rbg0TransformViewerGeometry" ).toByteArray() );
 	aViewRbg0TransformViewer->setChecked( settings->value( "View/Rbg0TransformViewerVisible", false ).toBool() );
 	mVdp2VramViewer->restoreGeometry( settings->value( "View/Vdp2VramViewerGeometry" ).toByteArray() );

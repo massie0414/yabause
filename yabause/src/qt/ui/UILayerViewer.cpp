@@ -61,6 +61,58 @@ protected:
     QImage mImage;
 };
 
+class SpriteOutlineWidget : public LayerPreviewWidget
+{
+public:
+    SpriteOutlineWidget(QWidget *parent) : LayerPreviewWidget(parent), mMode(0)
+    {
+        setMinimumSize(280, 196);
+        setAccessibleName(tr("VDP1 distorted sprite outlines"));
+    }
+
+    void setSnapshot(const QImage &image, const QImage &outlines)
+    {
+        mOriginal = image;
+        mOutlines = outlines;
+        rebuild();
+    }
+
+    void setMode(int mode) { mMode = mode; rebuild(); }
+
+private:
+    void rebuild()
+    {
+        if (mOriginal.isNull() || mOutlines.size() != mOriginal.size() || mMode == 2)
+        {
+            setImage(mOriginal);
+            return;
+        }
+        QImage image = mOriginal.copy();
+        if (mMode == 1) image.fill(Qt::transparent);
+        // A dark one-pixel halo keeps the bright green edges readable on
+        // both green textures and the checkerboard. Paint all edges last.
+        for (int y = 0; y < image.height(); ++y)
+        {
+            const QRgb *edges = reinterpret_cast<const QRgb *>(mOutlines.constScanLine(y));
+            for (int x = 0; x < image.width(); ++x)
+            {
+                if (!edges[x]) continue;
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx)
+                        if (x + dx >= 0 && x + dx < image.width() && y + dy >= 0 && y + dy < image.height())
+                            image.setPixel(x + dx, y + dy, qRgb(0, 24, 0));
+            }
+        }
+        QPainter painter(&image);
+        painter.drawImage(0, 0, mOutlines);
+        painter.end();
+        setImage(image);
+    }
+
+    QImage mOriginal, mOutlines;
+    int mMode;
+};
+
 class Rbg0TransformWidget : public LayerPreviewWidget
 {
 public:
@@ -234,11 +286,18 @@ int UILayerPreviewSource::capture()
     mDistortedSpriteCount = 0;
     bool available = mEmulation->init() == 0;
     bool rotationVisible = false;
+    bool outlinesVisible = false;
     foreach (const QPointer<UILayerViewer> &viewer, mViewers)
+    {
         if (viewer && viewer->isVisible() && viewer->mKind == UILayerViewer::RBG0Transform)
             rotationVisible = true;
+        if (viewer && viewer->isVisible() && viewer->mKind == UILayerViewer::VDP1Outlines)
+            outlinesVisible = true;
+    }
     memset(&mRotation, 0, sizeof(mRotation));
     if (!rotationVisible || !available) mRotationSamples.clear();
+    if (!outlinesVisible || !available) mOutlinePixels.clear();
+    mOutlineImage = QImage();
     if (available)
     {
         u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT];
@@ -254,8 +313,13 @@ int UILayerPreviewSource::capture()
             mRotationSamples.resize(704 * 512);
             mRotation.samples = mRotationSamples.data();
         }
-        available = VIDSoftRenderLayerPreviewsWithRbg0(layers, &width, &height,
-            &mDistortedSpriteCount, rotationVisible ? &mRotation : NULL) == 0;
+        if (outlinesVisible) mOutlinePixels.resize(704 * 512);
+        available = VIDSoftRenderLayerPreviewsWithDebug(layers, &width, &height,
+            &mDistortedSpriteCount, rotationVisible ? &mRotation : NULL,
+            outlinesVisible ? mOutlinePixels.data() : NULL) == 0;
+        if (available && outlinesVisible)
+            mOutlineImage = QImage(reinterpret_cast<const uchar *>(mOutlinePixels.constData()),
+                width, height, width * 4, QImage::Format_ARGB32).copy();
     }
     for (int i = 0; i < VIDSOFT_LAYER_PREVIEW_COUNT; ++i)
         mImages[i] = available
@@ -270,7 +334,7 @@ void UILayerPreviewSource::refreshAutomatic()
     if (!needsRefresh()) return;
     const int delay = capture();
     foreach (const QPointer<UILayerViewer> &viewer, mViewers)
-        if (viewer && viewer->autoRefresh()) viewer->displayImages(mImages, mDistortedSpriteCount, mRotation, mRotationSamples);
+        if (viewer && viewer->autoRefresh()) viewer->displayImages(mImages, mDistortedSpriteCount, mRotation, mRotationSamples, mOutlineImage);
     updateTimer(delay);
 }
 
@@ -278,29 +342,49 @@ void UILayerPreviewSource::refreshViewer(UILayerViewer *viewer)
 {
     mTimer->stop();
     const int delay = capture();
-    viewer->displayImages(mImages, mDistortedSpriteCount, mRotation, mRotationSamples);
+    viewer->displayImages(mImages, mDistortedSpriteCount, mRotation, mRotationSamples, mOutlineImage);
     updateTimer(delay);
 }
 
 UILayerViewer::UILayerViewer(UILayerPreviewSource *source, Kind kind, QWidget *parent)
     : QDialog(parent, Qt::Window), mSource(source), mKind(kind), mSpriteCount(NULL), mTransform(NULL),
-      mTransformMode(NULL), mGridSpacing(NULL)
+      mTransformMode(NULL), mGridSpacing(NULL), mOutlines(NULL), mOutlineMode(NULL)
 {
-    const bool vdp1 = mKind == VDP1;
+    const bool outlines = mKind == VDP1Outlines;
+    const bool vdp1 = mKind == VDP1 || outlines;
     const bool rotation = mKind == RBG0Transform;
-    setObjectName(rotation ? "rbg0TransformViewer" : vdp1 ? "vdp1LayerViewer" : "layerViewer");
-    setWindowTitle(rotation ? tr("RBG0 Transform Viewer") : vdp1 ? tr("VDP1 Layer Viewer") : tr("VDP2 Layer Viewer"));
+    setObjectName(outlines ? "vdp1OutlineViewer" : rotation ? "rbg0TransformViewer" : vdp1 ? "vdp1LayerViewer" : "layerViewer");
+    setWindowTitle(outlines ? tr("VDP1 Sprite Outline Viewer") : rotation ? tr("RBG0 Transform Viewer") : vdp1 ? tr("VDP1 Layer Viewer") : tr("VDP2 Layer Viewer"));
     setModal(false);
-    resize(rotation ? QSize(820, 680) : vdp1 ? QSize(520, 450) : QSize(960, 620));
+    resize(rotation ? QSize(820, 680) : outlines ? QSize(760, 640) : vdp1 ? QSize(520, 450) : QSize(960, 620));
 
     QVBoxLayout *layout = new QVBoxLayout(this);
-    QLabel *description = new QLabel(rotation
+    QLabel *description = new QLabel(outlines
+        ? tr("Green = distorted sprite edges (A-B-C-D-A). Independent of View > Layer. Checkerboard = transparent.")
+        : rotation
         ? tr("Source-coordinate grid after RBG0 transformation. A = cyan, B = orange. Independent of View > Layer.")
         : tr("Each layer is shown independently of View > Layer. Checkerboard = transparent."), this);
     description->setWordWrap(true);
     layout->addWidget(description);
 
-    if (rotation)
+    if (outlines)
+    {
+        QHBoxLayout *options = new QHBoxLayout;
+        QLabel *modeLabel = new QLabel(tr("Display:"), this);
+        mOutlineMode = new QComboBox(this);
+        mOutlineMode->setObjectName("vdp1OutlineMode");
+        mOutlineMode->addItems(QStringList() << tr("Image + outlines") << tr("Outlines only") << tr("Image only"));
+        modeLabel->setBuddy(mOutlineMode);
+        options->addWidget(modeLabel);
+        options->addWidget(mOutlineMode);
+        options->addStretch();
+        layout->addLayout(options);
+        mOutlines = new SpriteOutlineWidget(this);
+        mOutlines->setObjectName("previewVDP1Outlines");
+        layout->addWidget(mOutlines, 1);
+        connect(mOutlineMode, SIGNAL(currentIndexChanged(int)), this, SLOT(updateOutlineView()));
+    }
+    else if (rotation)
     {
         QHBoxLayout *options = new QHBoxLayout;
         QLabel *modeLabel = new QLabel(tr("Display:"), this);
@@ -362,7 +446,9 @@ UILayerViewer::UILayerViewer(UILayerPreviewSource *source, Kind kind, QWidget *p
         layout->addWidget(mSpriteCount);
     }
 
-    QLabel *note = new QLabel(rotation
+    QLabel *note = new QLabel(outlines
+        ? tr("Edges include transparent and covered sprites, with clipping applied. Normal/scaled sprites and polygons have no outline. Software preview of the current command list.")
+        : rotation
         ? tr("Software sampling before blending. Grid includes transparent texels. Source = before wrapping; Map = before tile lookup. kx/ky are source scale factors.")
         : vdp1
         ? tr("Software preview of the current VDP1 command list.")
@@ -372,6 +458,7 @@ UILayerViewer::UILayerViewer(UILayerPreviewSource *source, Kind kind, QWidget *p
 
     QHBoxLayout *controls = new QHBoxLayout;
     mAutoRefresh = new QCheckBox(tr("Auto refresh"), this);
+    mAutoRefresh->setObjectName("layerAutoRefresh");
     mAutoRefresh->setChecked(true);
     controls->addWidget(mAutoRefresh);
     QPushButton *refreshButton = new QPushButton(tr("Refresh"), this);
@@ -418,7 +505,7 @@ void UILayerViewer::updateTransformView()
 }
 
 void UILayerViewer::displayImages(const QImage *images, u32 distortedSpriteCount, const VIDSoftRbg0Preview &rotation,
-    const QVector<VIDSoftRbg0Sample> &samples)
+    const QVector<VIDSoftRbg0Sample> &samples, const QImage &outlines)
 {
     if (mKind == RBG0Transform)
     {
@@ -433,13 +520,20 @@ void UILayerViewer::displayImages(const QImage *images, u32 distortedSpriteCount
                 .arg(rotation.coefficient_enabled[1] ? tr("on") : tr("off")));
         return;
     }
-    const int count = mKind == VDP1 ? 1 : 6;
-    const int first = mKind == VDP1 ? 0 : 1;
-    for (int i = 0; i < count; ++i) mViews[i]->setImage(images[first + i]);
+    const bool vdp1 = mKind == VDP1 || mKind == VDP1Outlines;
+    const int count = vdp1 ? 1 : 6;
+    const int first = vdp1 ? 0 : 1;
+    if (mOutlines) mOutlines->setSnapshot(images[0], outlines);
+    else for (int i = 0; i < count; ++i) mViews[i]->setImage(images[first + i]);
     const QImage &image = images[first];
     if (mSpriteCount)
         mSpriteCount->setText(image.isNull() ? tr("Distorted sprites: -")
             : tr("Distorted sprites: %1").arg(distortedSpriteCount));
     mStatus->setText(image.isNull() ? tr("Start emulation to view layers.")
         : tr("%1 x %2 per layer").arg(image.width()).arg(image.height()));
+}
+
+void UILayerViewer::updateOutlineView()
+{
+    if (mOutlines) mOutlines->setMode(mOutlineMode->currentIndex());
 }

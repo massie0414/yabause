@@ -15,6 +15,7 @@ extern "C" {
 class YabauseThread;
 class LayerPreviewWidget;
 class Rbg0TransformWidget;
+class SpriteOutlineWidget;
 class QCheckBox;
 class QComboBox;
 class QLabel;
@@ -41,6 +42,8 @@ private:
     QList<QPointer<UILayerViewer> > mViewers;
     QVector<quint32> mPixels[VIDSOFT_LAYER_PREVIEW_COUNT];
     QImage mImages[VIDSOFT_LAYER_PREVIEW_COUNT];
+    QVector<quint32> mOutlinePixels;
+    QImage mOutlineImage;
     u32 mDistortedSpriteCount;
     QVector<VIDSoftRbg0Sample> mRotationSamples;
     VIDSoftRbg0Preview mRotation;
@@ -51,7 +54,7 @@ class UILayerViewer : public QDialog
 {
     Q_OBJECT
 public:
-    enum Kind { VDP1, VDP2, RBG0Transform };
+    enum Kind { VDP1, VDP2, RBG0Transform, VDP1Outlines };
     UILayerViewer(UILayerPreviewSource *source, Kind kind, QWidget *parent = 0);
 
 signals:
@@ -64,12 +67,13 @@ protected:
 private slots:
     void refresh();
     void updateTransformView();
+    void updateOutlineView();
 
 private:
     friend class UILayerPreviewSource;
     bool autoRefresh() const;
     void displayImages(const QImage *images, u32 distortedSpriteCount, const VIDSoftRbg0Preview &rotation,
-        const QVector<VIDSoftRbg0Sample> &samples);
+        const QVector<VIDSoftRbg0Sample> &samples, const QImage &outlines);
     QPointer<UILayerPreviewSource> mSource;
     Kind mKind;
     LayerPreviewWidget *mViews[6];
@@ -79,6 +83,8 @@ private:
     Rbg0TransformWidget *mTransform;
     QComboBox *mTransformMode;
     QComboBox *mGridSpacing;
+    SpriteOutlineWidget *mOutlines;
+    QComboBox *mOutlineMode;
 };
 
 #endif
