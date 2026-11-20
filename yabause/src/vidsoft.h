@@ -82,6 +82,17 @@ typedef struct {
 int VIDSoftRenderLayerPreviewsWithRbg0(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT],
    int *width, int *height, u32 *distorted_sprite_count, VIDSoftRbg0Preview *rotation);
 
+/* Optional distorted-sprite outlines from the same command replay. The caller
+ * supplies 704 * 512 pixels, packed like the layer images: green (0xFF00FF00)
+ * edges, zero elsewhere. Only executed type 2/3 commands contribute A-B-C-D-A
+ * edges, with local coordinates, VDP1 clipping and framebuffer readout applied.
+ * Transparency, priority and later primitives do not erase these debug edges.
+ * The outline buffer is cleared even when capture is unavailable.
+ */
+int VIDSoftRenderLayerPreviewsWithDebug(u32 *layers[VIDSOFT_LAYER_PREVIEW_COUNT],
+   int *width, int *height, u32 *distorted_sprite_count, VIDSoftRbg0Preview *rotation,
+   u32 *sprite_outlines);
+
 void VIDSoftSetBilinear(int b); 
 
 void VIDSoftSetNumPriorityThreads(int num);

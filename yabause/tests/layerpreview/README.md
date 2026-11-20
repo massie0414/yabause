@@ -41,3 +41,11 @@ including capture without initializing the software backend. Both the legacy
 image-only entry point and the extended entry point remain covered.
 Combined captures also check that distorted sprite counts and images remain correct
 while RBG0 source coordinates are collected in the same snapshot.
+
+Distorted-sprite outlines (`VIDSoftRenderLayerPreviewsWithDebug`) are checked
+against slanted A-B-C-D edges, transparent interiors, type 3 commands, excluded
+primitives/skips/end commands, transparent textures, priority zero, system and
+inside/outside user clipping, repeated CALL/RETURN with signed local origins,
+high-resolution/interlaced readout, 8-bit framebuffer scaling, and rotated
+framebuffer readout. Bounds and stale-image clearing are checked too. State
+preservation and active-worker checks enable both outlines and RBG0 tracing.

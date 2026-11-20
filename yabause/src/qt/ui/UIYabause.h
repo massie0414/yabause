@@ -91,6 +91,7 @@ protected:
 	UILayerViewer* mLayerViewer;
 	UILayerViewer* mVdp1LayerViewer;
 	UIVdp1FramebufferViewer* mVdp1FramebufferViewer;
+	UILayerViewer* mVdp1OutlineViewer;
 	UILayerViewer* mRbg0TransformViewer;
 	UIVdp2VramViewer* mVdp2VramViewer;
 	UIVdp1VramViewer* mVdp1VramViewer;
