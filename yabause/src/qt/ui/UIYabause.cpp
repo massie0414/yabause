@@ -32,6 +32,7 @@
 #include "UIVdp1FramebufferViewer.h"
 #include "UIVdp2VramViewer.h"
 #include "UIVdp1VramViewer.h"
+#include "UIVdpPaletteViewer.h"
 #include "UISoundMonitor.h"
 #include "UIDebugM68K.h"
 #include "UIDebugSCUDSP.h"
@@ -148,6 +149,12 @@ UIYabause::UIYabause( QWidget* parent )
 	mVdp2VramViewer = new UIVdp2VramViewer( mYabauseThread, this );
 	connect( aViewVdp2VramViewer, SIGNAL( toggled( bool ) ), mVdp2VramViewer, SLOT( setVisible( bool ) ) );
 	connect( mVdp2VramViewer, SIGNAL( visibilityChanged( bool ) ), aViewVdp2VramViewer, SLOT( setChecked( bool ) ) );
+	mVdp1PaletteViewer = new UIVdpPaletteViewer( mYabauseThread, true, this );
+	connect( aViewVdp1PaletteViewer, SIGNAL( toggled( bool ) ), mVdp1PaletteViewer, SLOT( setVisible( bool ) ) );
+	connect( mVdp1PaletteViewer, SIGNAL( visibilityChanged( bool ) ), aViewVdp1PaletteViewer, SLOT( setChecked( bool ) ) );
+	mVdp2PaletteViewer = new UIVdpPaletteViewer( mYabauseThread, false, this );
+	connect( aViewVdp2PaletteViewer, SIGNAL( toggled( bool ) ), mVdp2PaletteViewer, SLOT( setVisible( bool ) ) );
+	connect( mVdp2PaletteViewer, SIGNAL( visibilityChanged( bool ) ), aViewVdp2PaletteViewer, SLOT( setChecked( bool ) ) );
 	mSoundMonitor = new UISoundMonitor( mYabauseThread, this );
 	connect( aViewSoundMonitor, SIGNAL( toggled( bool ) ), mSoundMonitor, SLOT( setVisible( bool ) ) );
 	connect( mSoundMonitor, SIGNAL( visibilityChanged( bool ) ), aViewSoundMonitor, SLOT( setChecked( bool ) ) );
@@ -261,6 +268,10 @@ void UIYabause::closeEvent( QCloseEvent* e )
 	vs->setValue( "View/Vdp2VramViewerGeometry", mVdp2VramViewer->saveGeometry() );
 	vs->setValue( "View/Vdp1VramViewerVisible", mVdp1VramViewer->isVisible() );
 	vs->setValue( "View/Vdp1VramViewerGeometry", mVdp1VramViewer->saveGeometry() );
+	vs->setValue( "View/Vdp1PaletteViewerVisible", mVdp1PaletteViewer->isVisible() );
+	vs->setValue( "View/Vdp1PaletteViewerGeometry", mVdp1PaletteViewer->saveGeometry() );
+	vs->setValue( "View/Vdp2PaletteViewerVisible", mVdp2PaletteViewer->isVisible() );
+	vs->setValue( "View/Vdp2PaletteViewerGeometry", mVdp2PaletteViewer->saveGeometry() );
 	vs->setValue( "View/SoundMonitorVisible", mSoundMonitor->isVisible() );
 	vs->setValue( "View/SoundMonitorGeometry", mSoundMonitor->saveGeometry() );
 	vs->setValue( "View/LayerMenuVisible", mViewLayer->isTearOffMenuVisible() );
@@ -1166,6 +1177,10 @@ void UIYabause::restoreLayerMenu()
 	aViewVdp2VramViewer->setChecked( settings->value( "View/Vdp2VramViewerVisible", false ).toBool() );
 	mVdp1VramViewer->restoreGeometry( settings->value( "View/Vdp1VramViewerGeometry" ).toByteArray() );
 	aViewVdp1VramViewer->setChecked( settings->value( "View/Vdp1VramViewerVisible", false ).toBool() );
+	mVdp1PaletteViewer->restoreGeometry( settings->value( "View/Vdp1PaletteViewerGeometry" ).toByteArray() );
+	aViewVdp1PaletteViewer->setChecked( settings->value( "View/Vdp1PaletteViewerVisible", false ).toBool() );
+	mVdp2PaletteViewer->restoreGeometry( settings->value( "View/Vdp2PaletteViewerGeometry" ).toByteArray() );
+	aViewVdp2PaletteViewer->setChecked( settings->value( "View/Vdp2PaletteViewerVisible", false ).toBool() );
 	mSoundMonitor->restoreGeometry( settings->value( "View/SoundMonitorGeometry" ).toByteArray() );
 	aViewSoundMonitor->setChecked( settings->value( "View/SoundMonitorVisible", false ).toBool() );
 #if QT_VERSION >= QT_VERSION_CHECK(5, 7, 0)

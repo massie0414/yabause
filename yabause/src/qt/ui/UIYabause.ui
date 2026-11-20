@@ -218,6 +218,8 @@
     <addaction name="aViewRbg0TransformViewer"/>
     <addaction name="aViewVdp2VramViewer"/>
     <addaction name="aViewVdp1VramViewer"/>
+    <addaction name="aViewVdp1PaletteViewer"/>
+    <addaction name="aViewVdp2PaletteViewer"/>
     <addaction name="aViewSoundMonitor"/>
     <addaction name="aViewFullscreen"/>
     <addaction name="aViewLog"/>
@@ -703,6 +705,22 @@
    </property>
    <property name="text">
     <string>VDP2 VRAM Viewer</string>
+   </property>
+  </action>
+  <action name="aViewVdp1PaletteViewer">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>VDP1 Palette Viewer</string>
+   </property>
+  </action>
+  <action name="aViewVdp2PaletteViewer">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>VDP2 Palette Viewer</string>
    </property>
   </action>
   <action name="aViewSoundMonitor">
