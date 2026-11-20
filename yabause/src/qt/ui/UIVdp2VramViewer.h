@@ -14,10 +14,12 @@ class QCheckBox;
 class QComboBox;
 class QGraphicsView;
 class QGraphicsPixmapItem;
+class QGraphicsRectItem;
 class QLabel;
 class QPushButton;
 class QSpinBox;
 class QTimer;
+class QTabWidget;
 
 class UIVdp2VramViewer : public QDialog
 {
@@ -45,9 +47,14 @@ private slots:
     void updateTimer();
     void updateZoom();
     void saveImage();
+    void redrawCells();
+    void updateCellZoom();
+    void saveCellImage();
 
 private:
     Vdp2VramConfig config() const;
+    void createCellTab();
+    QString cellDescription(const Vdp2Cell &cell) const;
     YabauseThread *mEmulation;
     Vdp2 mRegs;
     QVector<u8> mRam, mCram;
@@ -61,6 +68,19 @@ private:
     QLabel *mStatus, *mHover, *mPresetInfo;
     QPushButton *mSave;
     QTimer *mTimer;
+    QTabWidget *mTabs;
+    QComboBox *mPlane, *mMapZoom, *mTileZoom;
+    QCheckBox *mCellGrid, *mCellTransparency;
+    QGraphicsView *mMapView, *mTileView;
+    QGraphicsPixmapItem *mMapPixmap, *mTilePixmap;
+    QGraphicsRectItem *mTileSelection;
+    QLabel *mCellInfo, *mCellHover;
+    QPushButton *mSaveMap, *mSaveTiles;
+    Vdp2CellMap mCellMap;
+    QImage mMapImage, mTileImage;
+    QVector<Vdp2Cell> mCells;
+    QVector<int> mCellIndices;
+    int mMapOriginX, mMapOriginY;
 };
 
 #endif
