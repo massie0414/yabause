@@ -767,6 +767,12 @@ s16 apply_volume(u16 tl, u16 slot_att, const s16 s)
    sample_att = s * att_clipped;
    shift = tl_att >> 6;
 
+   /* High TL plus envelope/LFO attenuation can exceed a 32-bit shift.
+      The sample is already below one LSB here; retain arithmetic-shift
+      rounding without letting the CPU wrap the shift count back to zero. */
+   if (shift + 7 >= 32)
+      return sample_att < 0 ? -1 : 0;
+
    sample_att = sample_att >> (shift + 7);
 
    return sample_att;

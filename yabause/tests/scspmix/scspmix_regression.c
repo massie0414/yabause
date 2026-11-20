@@ -298,6 +298,55 @@ static void madrs_output(int jit_core)
    }
 }
 
+static void quiet_volume(void)
+{
+   /* Compare the volume stage with a 64-bit division oracle. TL and the
+      envelope/LFO attenuation can require more than a 32-bit shift. */
+   static const int inputs[] = { -32768, -16384, -1, 0, 1, 16384, 32767 };
+   extern s16 apply_volume(u16 tl, u16 slot_att, s16 sample);
+   int tl, att, n;
+   for (tl = 0; tl <= 255; tl++)
+      for (att = 0; att <= 0x3bf + 512; att++)
+         for (n = 0; n < sizeof(inputs) / sizeof(inputs[0]); n++)
+         {
+            int total = tl * 4 + att;
+            s64 numerator = (s64)inputs[n] * (128 - (total % 64));
+            s64 divisor = (s64)1 << (total / 64 + 7);
+            int expected = (int)(numerator >= 0 ? numerator / divisor :
+                                -((-numerator + divisor - 1) / divisor));
+            int actual = apply_volume(tl, att, (s16)inputs[n]);
+            checks++;
+            if (actual != expected)
+            {
+               if (failures < 12)
+                  fprintf(stderr, "FAIL: volume TL=%d attenuation=%d input=%d: %d, expected %d\n",
+                          tl, att, inputs[n], actual, expected);
+               failures++;
+            }
+         }
+}
+
+static void quiet_voice(int jit_core)
+{
+   int sign, i;
+   yabsys.use_scsp_dsp_jit = jit_core;
+   use_new_scsp = 1;
+   for (sign = -1; sign <= 1; sign += 2)
+   {
+      ScspReset();
+      ScspWriteWord(0x400, 15);
+      for (i = 0; i < 8; i++) T2WriteWord(SoundRam, 0x1000 + i * 2, sign * 32767);
+      ScspWriteWord(0x02, 0x1000);
+      ScspWriteWord(0x06, 8);
+      /* AR=0 holds the initial envelope attenuation at 0x280. */
+      ScspWriteWord(0x0c, 255);
+      ScspWriteWord(0x16, 7 << 13);
+      ScspWriteWord(0x00, 0x1820);
+      monitor_samples(64);
+      check_sample(jit_core, 7, 0, sign * 32767, sign < 0 ? -1 : 0, sign < 0 ? -1 : 0);
+   }
+}
+
 int main(void)
 {
    yabauseinit_struct init = {0};
@@ -310,7 +359,10 @@ int main(void)
    madrs_output(0);
    madrs_output(1);
    sound_monitor();
+   quiet_volume();
+   quiet_voice(0);
+   quiet_voice(1);
    YabauseDeInit();
-   printf("SCSP mixing, disabled LFO, MADRS and audio monitor: %d checks, %d failures\n", checks, failures);
+   printf("SCSP mixing, LFO, MADRS, audio monitor and volume: %d checks, %d failures\n", checks, failures);
    return failures ? 1 : 0;
 }

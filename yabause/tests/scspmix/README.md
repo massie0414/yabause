@@ -72,4 +72,30 @@ both cores, absent DSP programs, read-and-clear intervals, reset, hidden-panel
 collection, CD audio exclusion and legacy PCM fallback. The existing stereo
 sample assertions run with monitoring enabled to check that it does not change
 the generated audio. State-load peak clearing is covered by `tests/scspstate`.
-The complete suite now has 67,629 checks.
+The checks above total 67,629 assertions.
+
+## Quiet voices producing clicks
+
+The New SCSP volume stage combines TL, envelope and amplitude-LFO attenuation.
+At a combined attenuation of 1600 or more, it previously right-shifted a signed
+32-bit product by at least 32 bits. This is undefined C behavior; on the tested
+MSVC x64 build, the shift count wrapped and nearly silent voices produced large
+samples. Return the arithmetic-shift limiting value (0 or -1) for these shifts,
+preserving the rounding of quieter negative samples and all smaller shifts.
+
+The volume fixture compares all 256 TL settings, envelope/LFO attenuation from
+0 through 1471, and seven signed PCM inputs with an independent 64-bit division
+oracle. A looping voice at TL=255 with a slow attack also exercises the full
+audio path on both DSP backends. The complete suite has 2,705,457 checks; the
+unmodified Release library fails 543,379, and the corrected library passes.
+
+Panzer Dragoon was booted normally and driven with the same Start inputs for
+7200 emulated frames. The original code executed 188,126 excessive shifts. In
+the gameplay capture (frames 1200..7199), the maximum adjacent channel-sample
+difference fell from 14,589 to 2,936; differences above 8,000 fell from four to
+zero. Neither run had mixer overflow, missing generated samples or CDDA
+starvation. A separate 7200-frame NAS/WASAPI run with the original code had
+zero SDL underruns. These are waveform and timing checks, not a listening
+comparison or a claim that every possible source of clicking is fixed.
+Diagnostic sources, PCM captures and logs are in `build/panzer-audio/` and are
+excluded from version control.
