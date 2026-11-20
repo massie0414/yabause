@@ -10,6 +10,7 @@
 #include <QGraphicsScene>
 #include <QGraphicsView>
 #include <QGridLayout>
+#include <QHash>
 #include <QHideEvent>
 #include <QLabel>
 #include <QMessageBox>
@@ -18,12 +19,44 @@
 #include <QPushButton>
 #include <QShowEvent>
 #include <QSpinBox>
+#include <QSplitter>
+#include <QTabWidget>
 #include <QTimer>
 
 static QString hexAddress(u32 address, int digits = 5)
 {
     return QString("0x%1").arg(address, digits, 16, QLatin1Char('0')).toUpper();
 }
+
+class CellMapView : public QGraphicsView
+{
+public:
+    CellMapView(QWidget *parent) : QGraphicsView(parent), tileSize(8), grid(false) {}
+    int tileSize;
+    bool grid;
+protected:
+    void drawForeground(QPainter *painter, const QRectF &rect)
+    {
+        if (!grid) return;
+        const QRectF area = rect.intersected(sceneRect());
+        const int step = transform().m11() >= 1 ? tileSize : 512;
+        painter->save();
+        for (int axis = 0; axis < 2; ++axis)
+        {
+            const int begin = int(axis ? area.top() : area.left()) / step * step;
+            const int end = int(axis ? area.bottom() : area.right());
+            for (int p = begin; p <= end; p += step)
+            {
+                QPen pen(p % 512 ? QColor(255, 255, 255, 60) : QColor(70, 200, 255, 190));
+                pen.setCosmetic(true);
+                painter->setPen(pen);
+                if (axis) painter->drawLine(QPointF(area.left(), p), QPointF(area.right(), p));
+                else painter->drawLine(QPointF(p, area.top()), QPointF(p, area.bottom()));
+            }
+        }
+        painter->restore();
+    }
+};
 
 UIVdp2VramViewer::UIVdp2VramViewer(YabauseThread *emulation, QWidget *parent)
     : QDialog(parent, Qt::Window), mEmulation(emulation), mValid(false),
@@ -33,12 +66,12 @@ UIVdp2VramViewer::UIVdp2VramViewer(YabauseThread *emulation, QWidget *parent)
     setWindowTitle(tr("VDP2 VRAM Viewer"));
     resize(1000, 740);
     QVBoxLayout *layout = new QVBoxLayout(this);
-    QLabel *description = new QLabel(tr("Browse image data in the 512 KiB VDP2 VRAM. Tiles are arranged in memory order; bitmap mode shows a continuous image."), this);
+    QLabel *description = new QLabel(tr("Inspect raw VRAM, or select Cell map to see a layer's tile images and map layout."), this);
     description->setWordWrap(true);
     layout->addWidget(description);
 
     QHBoxLayout *presets = new QHBoxLayout;
-    presets->addWidget(new QLabel(tr("Layer preset:"), this));
+    presets->addWidget(new QLabel(tr("Layer:"), this));
     mLayer = new QComboBox(this);
     mLayer->setObjectName("vramLayer");
     mLayer->addItems(QStringList() << "NBG0" << "NBG1" << "NBG2" << "NBG3"
@@ -48,8 +81,16 @@ UIVdp2VramViewer::UIVdp2VramViewer(YabauseThread *emulation, QWidget *parent)
     apply->setObjectName("vramApplyLayer");
     presets->addWidget(apply);
     mPresetInfo = new QLabel(this);
+    mPresetInfo->setWordWrap(true);
     presets->addWidget(mPresetInfo, 1);
     layout->addLayout(presets);
+
+    mTabs = new QTabWidget(this);
+    mTabs->setObjectName("vramTabs");
+    QWidget *rawTab = new QWidget(mTabs);
+    QVBoxLayout *rawLayout = new QVBoxLayout(rawTab);
+    mTabs->addTab(rawTab, tr("Raw VRAM"));
+    layout->addWidget(mTabs, 1);
 
     QGridLayout *controls = new QGridLayout;
     mLayout = new QComboBox(this);
@@ -99,7 +140,7 @@ UIVdp2VramViewer::UIVdp2VramViewer(YabauseThread *emulation, QWidget *parent)
         controls->addWidget(widgets[i], i / 4 * 2 + 1, i % 4);
         controls->setColumnStretch(i % 4, 1);
     }
-    layout->addLayout(controls);
+    rawLayout->addLayout(controls);
 
     QHBoxLayout *options = new QHBoxLayout;
     mTransparency = new QCheckBox(tr("Show transparency"), this);
@@ -109,7 +150,7 @@ UIVdp2VramViewer::UIVdp2VramViewer(YabauseThread *emulation, QWidget *parent)
     options->addWidget(mTransparency);
     options->addWidget(mGrayscale);
     options->addStretch();
-    layout->addLayout(options);
+    rawLayout->addLayout(options);
 
     mView = new QGraphicsView(this);
     mView->setObjectName("vramImage");
@@ -127,13 +168,15 @@ UIVdp2VramViewer::UIVdp2VramViewer(YabauseThread *emulation, QWidget *parent)
     mView->setDragMode(QGraphicsView::ScrollHandDrag);
     mView->viewport()->setMouseTracking(true);
     mView->viewport()->installEventFilter(this);
-    layout->addWidget(mView, 1);
+    rawLayout->addWidget(mView, 1);
     mHover = new QLabel(tr("Point at an image pixel to inspect its VRAM address. Drag to pan."), this);
     mHover->setObjectName("vramHover");
-    layout->addWidget(mHover);
+    mHover->setWordWrap(true);
+    rawLayout->addWidget(mHover);
     QLabel *note = new QLabel(tr("VRAM also contains maps and tables, which may look like noise. Tile presets use the layer's CRAM offset; individual tiles can need different palettes. Checkerboard = transparent."), this);
     note->setWordWrap(true);
-    layout->addWidget(note);
+    rawLayout->addWidget(note);
+    createCellTab();
 
     QHBoxLayout *actions = new QHBoxLayout;
     mAutoRefresh = new QCheckBox(tr("Auto refresh"), this);
@@ -168,6 +211,8 @@ UIVdp2VramViewer::UIVdp2VramViewer(YabauseThread *emulation, QWidget *parent)
     connect(mPalette, SIGNAL(valueChanged(int)), this, SLOT(redraw()));
     connect(mTransparency, SIGNAL(toggled(bool)), this, SLOT(redraw()));
     connect(mGrayscale, SIGNAL(toggled(bool)), this, SLOT(redraw()));
+    connect(mTabs, SIGNAL(currentChanged(int)), this, SLOT(redraw()));
+    connect(mLayer, SIGNAL(currentIndexChanged(int)), this, SLOT(redraw()));
     redraw();
 }
 
@@ -261,6 +306,15 @@ void UIVdp2VramViewer::addressChanged()
 void UIVdp2VramViewer::redraw()
 {
     if (mUpdating) return;
+    const bool cells = mTabs->currentIndex() == 1;
+    mSave->setVisible(!cells);
+    mPresetInfo->setVisible(!cells);
+    findChild<QPushButton *>("vramApplyLayer")->setVisible(!cells);
+    if (cells)
+    {
+        redrawCells();
+        return;
+    }
     Vdp2VramConfig c = config();
     int width = 0, height = 0;
     mHeight->setEnabled(!c.tile_size);
@@ -325,10 +379,47 @@ void UIVdp2VramViewer::resizeEvent(QResizeEvent *event)
 {
     QDialog::resizeEvent(event);
     updateZoom();
+    updateCellZoom();
 }
 
 bool UIVdp2VramViewer::eventFilter(QObject *object, QEvent *event)
 {
+    if ((object == mMapView->viewport() || object == mTileView->viewport()) &&
+        (event->type() == QEvent::MouseMove || event->type() == QEvent::MouseButtonPress) &&
+        !mMapImage.isNull())
+    {
+        const bool map = object == mMapView->viewport();
+        QGraphicsView *view = map ? mMapView : mTileView;
+        const QPointF p = view->mapToScene(static_cast<QMouseEvent *>(event)->pos());
+        const QImage &img = map ? mMapImage : mTileImage;
+        const int size = mCellMap.tile.tile_size;
+        if (p.x() >= 0 && p.y() >= 0 && p.x() < img.width() && p.y() < img.height())
+        {
+            int index = int(p.y()) / size * (img.width() / size) + int(p.x()) / size;
+            if (map)
+            {
+                Vdp2Cell cell;
+                if (!Vdp2CellMapRead(&mCellMap, mRam.constData(), mMapOriginX + int(p.x()),
+                    mMapOriginY + int(p.y()), &cell))
+                    mCellHover->setText(tr("Cell (%1, %2) | %3")
+                        .arg((mMapOriginX + int(p.x())) / size).arg((mMapOriginY + int(p.y())) / size)
+                        .arg(cellDescription(cell)));
+                index = mCellIndices.value(index, -1);
+            }
+            else if (index < mCells.size())
+                mCellHover->setText(tr("Tile %1 | First reference: %2").arg(index).arg(cellDescription(mCells[index])));
+            else mCellHover->setText(tr("Outside tile data."));
+            if (index >= 0 && index < mCells.size())
+            {
+                const int columns = mTileImage.width() / size;
+                mTileSelection->setRect((index % columns) * size, (index / columns) * size, size, size);
+                mTileSelection->show();
+                if (map && event->type() == QEvent::MouseButtonPress)
+                    mTileView->ensureVisible(mTileSelection, 20, 20);
+            }
+        }
+        else mCellHover->setText(tr("Outside image data."));
+    }
     if (object == mView->viewport() && event->type() == QEvent::MouseMove && !mImage.isNull())
     {
         const QPointF p = mView->mapToScene(static_cast<QMouseEvent *>(event)->pos());
@@ -355,4 +446,254 @@ void UIVdp2VramViewer::saveImage()
     if (path.isEmpty()) return;
     if (!path.endsWith(".png", Qt::CaseInsensitive)) path += ".png";
     if (!image.save(path, "PNG")) QMessageBox::warning(this, tr("Save VRAM image"), tr("Could not save the image."));
+}
+
+void UIVdp2VramViewer::createCellTab()
+{
+    QWidget *tab = new QWidget(mTabs);
+    QVBoxLayout *layout = new QVBoxLayout(tab);
+    QHBoxLayout *controls = new QHBoxLayout;
+    controls->addWidget(new QLabel(tr("Map area:"), tab));
+    mPlane = new QComboBox(tab);
+    mPlane->setObjectName("cellPlane");
+    mPlane->addItem(tr("Whole map"));
+    controls->addWidget(mPlane);
+    mMapZoom = new QComboBox(tab);
+    mMapZoom->setObjectName("cellMapZoom");
+    mTileZoom = new QComboBox(tab);
+    mTileZoom->setObjectName("cellTileZoom");
+    const QStringList zooms = QStringList() << tr("Fit") << "1x" << "2x" << "4x" << "8x";
+    mMapZoom->addItems(zooms);
+    mTileZoom->addItems(zooms);
+    mTileZoom->setCurrentIndex(3);
+    controls->addWidget(new QLabel(tr("Map zoom:"), tab));
+    controls->addWidget(mMapZoom);
+    controls->addWidget(new QLabel(tr("Tile zoom:"), tab));
+    controls->addWidget(mTileZoom);
+    mCellGrid = new QCheckBox(tr("Cell grid"), tab);
+    mCellGrid->setObjectName("cellGrid");
+    mCellGrid->setChecked(true);
+    controls->addWidget(mCellGrid);
+    mCellTransparency = new QCheckBox(tr("Show transparency"), tab);
+    mCellTransparency->setObjectName("cellTransparency");
+    mCellTransparency->setChecked(true);
+    controls->addWidget(mCellTransparency);
+    controls->addStretch();
+    layout->addLayout(controls);
+    mCellInfo = new QLabel(tab);
+    mCellInfo->setObjectName("cellInfo");
+    mCellInfo->setWordWrap(true);
+    layout->addWidget(mCellInfo);
+    QSplitter *splitter = new QSplitter(Qt::Horizontal, tab);
+    mTileView = new QGraphicsView(splitter);
+    mTileView->setObjectName("cellTiles");
+    mMapView = new CellMapView(splitter);
+    mMapView->setObjectName("cellMap");
+    QGraphicsView *views[] = { mTileView, mMapView };
+    for (int i = 0; i < 2; ++i)
+    {
+        QGraphicsView *view = views[i];
+        QWidget *panel = new QWidget(splitter);
+        QVBoxLayout *panelLayout = new QVBoxLayout(panel);
+        panelLayout->setContentsMargins(0, 0, 0, 0);
+        panelLayout->addWidget(new QLabel(i ? tr("Map layout (before scrolling / rotation)")
+            : tr("Referenced tiles (original orientation)"), panel));
+        view->setScene(new QGraphicsScene(view));
+        view->setBackgroundBrush(mView->backgroundBrush());
+        view->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+        view->setDragMode(QGraphicsView::ScrollHandDrag);
+        view->viewport()->setMouseTracking(true);
+        view->viewport()->installEventFilter(this);
+        QGraphicsPixmapItem *pixmap = view->scene()->addPixmap(QPixmap());
+        pixmap->setTransformationMode(Qt::FastTransformation);
+        if (i) mMapPixmap = pixmap; else mTilePixmap = pixmap;
+        panelLayout->addWidget(view, 1);
+        QPushButton *save = new QPushButton(i ? tr("Save map PNG...") : tr("Save tiles PNG..."), panel);
+        save->setObjectName(i ? "cellSaveMap" : "cellSaveTiles");
+        if (i) mSaveMap = save; else mSaveTiles = save;
+        panelLayout->addWidget(save);
+        connect(save, SIGNAL(clicked()), this, SLOT(saveCellImage()));
+        splitter->addWidget(panel);
+    }
+    splitter->setStretchFactor(0, 1);
+    splitter->setStretchFactor(1, 2);
+    QPen selectionPen(Qt::yellow);
+    selectionPen.setCosmetic(true);
+    selectionPen.setWidth(2);
+    mTileSelection = mTileView->scene()->addRect(QRectF(), selectionPen);
+    mTileSelection->hide();
+    layout->addWidget(splitter, 1);
+    mCellHover = new QLabel(tr("Point at a cell to inspect it. Click a map cell to locate its tile. Drag to pan."), tab);
+    mCellHover->setObjectName("cellHover");
+    mCellHover->setWordWrap(true);
+    mCellHover->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addWidget(mCellHover);
+    QLabel *note = new QLabel(tr("Tiles with the same image address and palette are grouped. Map palettes and flips are applied; scrolling, rotation, priority and color effects are not. Blue grid lines mark 512-pixel pages."), tab);
+    note->setWordWrap(true);
+    layout->addWidget(note);
+    mTabs->addTab(tab, tr("Cell map"));
+    connect(mPlane, SIGNAL(currentIndexChanged(int)), this, SLOT(redrawCells()));
+    connect(mCellTransparency, SIGNAL(toggled(bool)), this, SLOT(redrawCells()));
+    connect(mCellGrid, SIGNAL(toggled(bool)), this, SLOT(updateCellZoom()));
+    connect(mMapZoom, SIGNAL(currentIndexChanged(int)), this, SLOT(updateCellZoom()));
+    connect(mTileZoom, SIGNAL(currentIndexChanged(int)), this, SLOT(updateCellZoom()));
+    connect(splitter, SIGNAL(splitterMoved(int,int)), this, SLOT(updateCellZoom()));
+    mSaveMap->setEnabled(false);
+    mSaveTiles->setEnabled(false);
+}
+
+void UIVdp2VramViewer::redrawCells()
+{
+    if (mUpdating || mTabs->currentIndex() != 1) return;
+    mMapImage = QImage(); mTileImage = QImage();
+    mMapPixmap->setPixmap(QPixmap()); mTilePixmap->setPixmap(QPixmap());
+    mCells.clear(); mCellIndices.clear();
+    mTileSelection->hide();
+    mMapOriginX = mMapOriginY = 0;
+    int result = mValid ? Vdp2CellMapConfig(&mRegs, mLayer->currentIndex(), &mCellMap) : -1;
+    QString info;
+    if (!mValid) info = tr("Start emulation to view a cell map.");
+    else if (result == 1) info = tr("%1 uses bitmap mode. Use Raw VRAM and 'Use layer settings' to inspect its image.").arg(mLayer->currentText());
+    else if (result) info = tr("Reserved color format; this cell map cannot be decoded.");
+    else
+    {
+        const int count = mCellMap.map_columns * mCellMap.map_columns;
+        int selected = qMin(mPlane->currentIndex(), count);
+        mPlane->blockSignals(true);
+        mPlane->clear();
+        mPlane->addItem(tr("Whole map"));
+        for (int i = 0; i < count; ++i)
+            mPlane->addItem(tr("Plane %1 (%2, %3) - %4").arg(QChar('A' + i))
+                .arg(i % mCellMap.map_columns).arg(i / mCellMap.map_columns)
+                .arg(hexAddress(mCellMap.plane_address[i])));
+        mPlane->setCurrentIndex(selected);
+        mPlane->blockSignals(false);
+        int width = mCellMap.plane_width, height = mCellMap.plane_height;
+        if (selected)
+        {
+            mMapOriginX = (selected - 1) % mCellMap.map_columns * width;
+            mMapOriginY = (selected - 1) / mCellMap.map_columns * height;
+        }
+        else { width *= mCellMap.map_columns; height *= mCellMap.map_columns; }
+        mCellMap.tile.transparency = mCellMap.tile.transparency && mCellTransparency->isChecked();
+        const int size = mCellMap.tile.tile_size;
+        QHash<quint64, int> unique;
+        QVector<QImage> tiles;
+        mMapImage = QImage(width, height, QImage::Format_ARGB32);
+        bool valid = !mMapImage.isNull();
+        for (int y = 0; valid && y < height; y += size)
+            for (int x = 0; valid && x < width; x += size)
+            {
+                Vdp2Cell cell;
+                if (Vdp2CellMapRead(&mCellMap, mRam.constData(), x + mMapOriginX, y + mMapOriginY, &cell))
+                { valid = false; break; }
+                const quint64 key = (quint64(cell.character_address) << 11) | cell.palette;
+                int index = unique.value(key, -1);
+                if (index < 0)
+                {
+                    QImage tile(size, size, QImage::Format_ARGB32);
+                    if (tile.isNull() || Vdp2CellRender(&mCellMap, &cell, mRam.constData(), mCram.constData(),
+                        (mRegs.RAMCTL >> 12) & 3, reinterpret_cast<u32 *>(tile.bits()), size * size))
+                    { valid = false; break; }
+                    index = tiles.size();
+                    unique.insert(key, index);
+                    tiles.append(tile);
+                    mCells.append(cell);
+                }
+                mCellIndices.append(index);
+                const QImage &tile = tiles[index];
+                for (int ty = 0; ty < size; ++ty)
+                {
+                    u32 *dest = reinterpret_cast<u32 *>(mMapImage.scanLine(y + ty)) + x;
+                    const u32 *source = reinterpret_cast<const u32 *>(tile.constScanLine(cell.flip & 2 ? size - 1 - ty : ty));
+                    if (cell.flip & 1)
+                        for (int tx = 0; tx < size; ++tx) dest[tx] = source[size - 1 - tx];
+                    else memcpy(dest, source, size * sizeof(u32));
+                }
+            }
+        int columns = 32;
+        while ((tiles.size() + columns - 1) / columns * size > 4096) columns *= 2;
+        if (valid)
+        {
+            mTileImage = QImage(qMin(columns, tiles.size()) * size,
+                (tiles.size() + columns - 1) / columns * size, QImage::Format_ARGB32);
+            valid = !mTileImage.isNull();
+        }
+        if (valid)
+        {
+            mTileImage.fill(Qt::transparent);
+            QPainter painter(&mTileImage);
+            for (int i = 0; i < tiles.size(); ++i)
+                painter.drawImage((i % columns) * size, (i / columns) * size, tiles[i]);
+            info = tr("%1 | %2 | %3 x %3 tiles | %4 | %5-word names | Map: %6 x %7 planes, %8 x %9 px | %10 unique tiles in this area")
+                .arg(mLayer->currentText()).arg(mCellMap.enabled ? tr("Enabled") : tr("Disabled (showing stored map)"))
+                .arg(size).arg(mColor->itemText(mCellMap.tile.color)).arg(mCellMap.pattern_bytes / 2)
+                .arg(mCellMap.map_columns).arg(mCellMap.map_columns)
+                .arg(mCellMap.plane_width * mCellMap.map_columns).arg(mCellMap.plane_height * mCellMap.map_columns)
+                .arg(tiles.size());
+        }
+        else
+        {
+            mMapImage = QImage(); mTileImage = QImage();
+            mCells.clear(); mCellIndices.clear();
+            info = tr("Cannot decode this VRAM / CRAM format or allocate the map image.");
+        }
+    }
+    mCellInfo->setText(info);
+    mCellHover->setText(tr("Point at a cell to inspect it. Click a map cell to locate its tile. Drag to pan."));
+    mPlane->setEnabled(mValid && !result);
+    mMapPixmap->setPixmap(QPixmap::fromImage(mMapImage));
+    mTilePixmap->setPixmap(QPixmap::fromImage(mTileImage));
+    mMapView->scene()->setSceneRect(QRectF(mMapImage.rect()));
+    mTileView->scene()->setSceneRect(QRectF(mTileImage.rect()));
+    mSaveMap->setEnabled(!mMapImage.isNull());
+    mSaveTiles->setEnabled(!mTileImage.isNull());
+    mStatus->setText(mMapImage.isNull() ? tr("No cell image.") : tr("%1 x %2 map | %3 tiles")
+        .arg(mMapImage.width()).arg(mMapImage.height()).arg(mCells.size()));
+    updateCellZoom();
+}
+
+void UIVdp2VramViewer::updateCellZoom()
+{
+    if (mTabs->currentIndex() != 1) return;
+    CellMapView *mapView = static_cast<CellMapView *>(mMapView);
+    mapView->tileSize = mMapImage.isNull() ? 8 : mCellMap.tile.tile_size;
+    mapView->grid = mCellGrid->isChecked() && !mMapImage.isNull();
+    QGraphicsView *views[] = { mMapView, mTileView };
+    QComboBox *zooms[] = { mMapZoom, mTileZoom };
+    for (int i = 0; i < 2; ++i)
+    {
+        if (!zooms[i]->currentIndex())
+        {
+            if (!views[i]->sceneRect().isEmpty()) views[i]->fitInView(views[i]->sceneRect(), Qt::KeepAspectRatio);
+        }
+        else
+        {
+            int zoom = 1 << (zooms[i]->currentIndex() - 1);
+            views[i]->setTransform(QTransform::fromScale(zoom, zoom));
+        }
+        views[i]->viewport()->update();
+    }
+}
+
+QString UIVdp2VramViewer::cellDescription(const Vdp2Cell &c) const
+{
+    return tr("Plane %1 | Name @ %2 = %3 | Image @ %4 (SH2 %5) | Palette %6 | Flip H:%7 V:%8 | Special priority:%9 color:%10")
+        .arg(QChar('A' + c.plane)).arg(hexAddress(c.pattern_address))
+        .arg(hexAddress(c.pattern_name, mCellMap.pattern_bytes * 2))
+        .arg(hexAddress(c.character_address)).arg(hexAddress(0x25e00000 + c.character_address, 8))
+        .arg(hexAddress(c.palette, 3)).arg(c.flip & 1).arg((c.flip >> 1) & 1)
+        .arg(c.special_priority).arg(c.special_color);
+}
+
+void UIVdp2VramViewer::saveCellImage()
+{
+    const bool map = sender() == mSaveMap;
+    const QImage image = map ? mMapImage : mTileImage;
+    if (image.isNull()) return;
+    QString path = QFileDialog::getSaveFileName(this, tr("Save cell image"),
+        map ? "vdp2-map.png" : "vdp2-tiles.png", tr("PNG image (*.png)"));
+    if (path.isEmpty()) return;
+    if (!path.endsWith(".png", Qt::CaseInsensitive)) path += ".png";
+    if (!image.save(path, "PNG")) QMessageBox::warning(this, tr("Save cell image"), tr("Could not save the image."));
 }
